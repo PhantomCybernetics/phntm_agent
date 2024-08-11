@@ -5,9 +5,9 @@ from glob import glob
 package_name = 'phntm_agent'
 
 setup(
-    name=phntm_agent,
+    name=package_name,
     version='0.0.1',
-    packages=[phntm_agent],
+    packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
