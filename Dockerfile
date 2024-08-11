@@ -19,7 +19,7 @@ RUN apt-get update -y --fix-missing
 
 RUN pip install setuptools \
                 termcolor \
-                PyEventEmitterr
+                PyEventEmitter
 
 # init workspace
 ENV ROS_WS=/ros2_ws

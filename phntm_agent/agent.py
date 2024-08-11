@@ -7,8 +7,6 @@ from rclpy.serialization import deserialize_message
 from .inc.status_led import StatusLED
 from termcolor import colored as c
 
-import subprocess
-
 import docker
 docker_client = None
 try:
