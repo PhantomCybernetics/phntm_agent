@@ -7,8 +7,4 @@ Log in and out
 `  --build-arg ARCH=aarch64 \
 ` .
 
-intit symlinked fs:
-`cd /ros2_ws`
-`colcon build --symlink-install --packages-select phntm_agent`
-
 `ros2 launch phntm_agent agent_launch.py`

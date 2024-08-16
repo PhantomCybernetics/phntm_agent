@@ -200,10 +200,7 @@ class AgentController(Node):
     
     async def introspection(self):
 
-        t = 0.0
-        s = 0.0
-        c = 0
-        
+        c = 0 # pass counter        
         self.docker_stats_streams = {}
         
         while not self.shutting_down:
