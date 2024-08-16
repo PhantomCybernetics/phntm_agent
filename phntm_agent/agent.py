@@ -12,6 +12,9 @@ import yaml
 import json
 import sys
 import psutil
+import math
+import time
+from phntm_interfaces.msg import DockerStatus
 
 import docker
 docker_client = None
@@ -52,12 +55,13 @@ class AgentController(Node):
         self.l.debug(f'Phntm Agent @ {self.hostname} started')    
         
         self.last_printed_lines = 0
+        self.docker_pub = None
+        self.docker_sub = None
+        self.top_pub = None
+        self.disk_pub = None
     
     
-    # again taken directly from docker:
-    #   https://github.com/docker/cli/blob/2bfac7fcdafeafbd2f450abb6d1bb3106e4f3ccb/cli/command/container/stats_helpers.go#L168
-    # precpu_stats in 1.13+ is completely broken, doesn't contain any values
-    def calculate_stats(self, stats):
+    def calculate_docker_stats(self, stats):
 
         # mem_bytes_used = stats["memory_stats"]["usage"]
         # mem_bytes_avail = stats["memory_stats"]["limit"]
@@ -125,10 +129,25 @@ class AgentController(Node):
     async def get_docker_containers(self):
         docker_containers = docker_client.containers.list(all=True)
          
+        msg = DockerStatus()
+        time_nanosec:int = time.time_ns()
+        msg.header.stamp.sec = math.floor(time_nanosec / 1000000000)
+        msg.header.stamp.nanosec = time_nanosec % 1000000000
+        msg.host_name = self.hostname
+        msg.num_containers = len(docker_containers)
+        msg.names = []
+        msg.ids = []
+        msg.states = []
+        msg.cpu_percents = []
+        msg.block_io_read_bytes = []
+        msg.block_io_write_bytes = []
+        msg.pids = []
+         
         c_stats = []
         for cont in docker_containers:
             cs = {}
             cs['stats_keys'] = []
+            
             if cont.status == 'running':
                 if not cont.id in self.docker_stats_streams:
                     self.docker_stats_streams[cont.id] = cont.stats(stream=True, decode=True)
@@ -136,13 +155,35 @@ class AgentController(Node):
                 
                 # stats_decoded = json.loads(stats)
                 # print(json.dumps(stats, indent=4))
-                cs = self.calculate_stats(stats)
+                cs = self.calculate_docker_stats(stats)
                 cs['stats_keys'] = stats.keys()
+                msg.pids.append(cs['pids'])
+                msg.cpu_percents.append(cs['cpu_perc'])
+                msg.block_io_read_bytes.append(cs['block_io_read'])
+                msg.block_io_write_bytes.append(cs['block_io_write'])
+            else:
+                msg.pids.append(0)
+                msg.cpu_percents.append(0.0)
+                msg.block_io_read_bytes.append(0)
+                msg.block_io_write_bytes.append(0)
+                
             cs['name'] = cont.name
             cs['status'] = cont.status
             cs['short_id'] = cont.short_id
             cs['id'] = cont.id
-            
+            msg.names.append(cont.name)
+            msg.ids.append(cont.id)
+            i_status = DockerStatus.STATUS_EXITED
+            match cont.status:
+                case 'restarting':
+                    i_status = DockerStatus.STATUS_RESTARTING
+                case 'running':
+                    i_status = DockerStatus.STATUS_RUNNING
+                case 'paused':
+                    i_status = DockerStatus.STATUS_PAUSED
+                case 'exited':
+                    i_status = DockerStatus.STATUS_EXITED
+            msg.states.append(i_status)
             c_stats.append(cs)
 
         for i in range(len(c_stats)):
@@ -163,7 +204,9 @@ class AgentController(Node):
                 print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
                 self.clear_line()
                 self.last_printed_lines += 1
-           
+        
+        if self.docker_pub and self.context.ok():
+            self.docker_pub.publish(msg)
            
     async def get_top(self):
         cpu_count = psutil.cpu_count()
@@ -203,6 +246,16 @@ class AgentController(Node):
         c = 0 # pass counter        
         self.docker_stats_streams = {}
         
+        if self.docker_enabled:
+            qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST,
+                             depth=1,
+                             reliability=QoSReliabilityPolicy.BEST_EFFORT
+                             )
+            self.docker_pub = self.create_publisher(DockerStatus, self.docker_topic, qos)
+            if self.docker_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerStatus')
+                self.docker_enabled = False
+        
         while not self.shutting_down:
             
             if not self.scroll_enabled and self.last_printed_lines > 0:
@@ -211,6 +264,7 @@ class AgentController(Node):
                 sys.stdout.write("\r\n")
                 
             print(f'Introspecting ({str(c)})...')
+            self.clear_line()
             c += 1 # counter
             self.last_printed_lines = 1        
 
@@ -267,7 +321,9 @@ class AgentController(Node):
         
         
     async def shutdown_cleanup(self):
-        pass
+        if self.docker_pub:
+            self.docker_pub.destroy()
+            self.docker_pub = None
 
 
 async def main_async(args):
