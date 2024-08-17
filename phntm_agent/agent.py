@@ -14,7 +14,7 @@ import sys
 import psutil
 import math
 import time
-from phntm_interfaces.msg import DockerStatus
+from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo
 
 import docker
 docker_client = None
@@ -57,8 +57,7 @@ class AgentController(Node):
         self.last_printed_lines = 0
         self.docker_pub = None
         self.docker_sub = None
-        self.top_pub = None
-        self.disk_pub = None
+        self.sysinfo_pub = None
     
     
     def calculate_docker_stats(self, stats):
@@ -126,28 +125,28 @@ class AgentController(Node):
         if not self.scroll_enabled:
             sys.stdout.write("\033[K")
     
+    def print(self, str):
+        print(str)
+        self.clear_line()
+        self.last_printed_lines += 1
+    
+    def set_header(self, msg):
+        time_nanosec:int = time.time_ns()
+        msg.header.stamp.sec = math.floor(time_nanosec / 1000000000)
+        msg.header.stamp.nanosec = time_nanosec % 1000000000
+        msg.header.frame_id = self.hostname
+    
     async def get_docker_containers(self):
         docker_containers = docker_client.containers.list(all=True)
          
         msg = DockerStatus()
-        time_nanosec:int = time.time_ns()
-        msg.header.stamp.sec = math.floor(time_nanosec / 1000000000)
-        msg.header.stamp.nanosec = time_nanosec % 1000000000
-        msg.host_name = self.hostname
-        msg.num_containers = len(docker_containers)
-        msg.names = []
-        msg.ids = []
-        msg.states = []
-        msg.cpu_percents = []
-        msg.block_io_read_bytes = []
-        msg.block_io_write_bytes = []
-        msg.pids = []
+        self.set_header(msg)
+        msg.containers = []
          
         c_stats = []
         for cont in docker_containers:
+            msg_cont = DockerContainerStatus()
             cs = {}
-            cs['stats_keys'] = []
-            
             if cont.status == 'running':
                 if not cont.id in self.docker_stats_streams:
                     self.docker_stats_streams[cont.id] = cont.stats(stream=True, decode=True)
@@ -156,35 +155,34 @@ class AgentController(Node):
                 # stats_decoded = json.loads(stats)
                 # print(json.dumps(stats, indent=4))
                 cs = self.calculate_docker_stats(stats)
-                cs['stats_keys'] = stats.keys()
-                msg.pids.append(cs['pids'])
-                msg.cpu_percents.append(cs['cpu_perc'])
-                msg.block_io_read_bytes.append(cs['block_io_read'])
-                msg.block_io_write_bytes.append(cs['block_io_write'])
+                msg_cont.pids = cs['pids']
+                msg_cont.cpu_percent = cs['cpu_perc']
+                msg_cont.block_io_read_bytes = cs['block_io_read']
+                msg_cont.block_io_write_bytes = cs['block_io_write']
             else:
-                msg.pids.append(0)
-                msg.cpu_percents.append(0.0)
-                msg.block_io_read_bytes.append(0)
-                msg.block_io_write_bytes.append(0)
+                msg_cont.pids = 0
+                msg_cont.cpu_percent = 0.0
+                msg_cont.block_io_read_bytes = 0
+                msg_cont.block_io_write_bytes = 0
                 
             cs['name'] = cont.name
             cs['status'] = cont.status
             cs['short_id'] = cont.short_id
             cs['id'] = cont.id
-            msg.names.append(cont.name)
-            msg.ids.append(cont.id)
-            i_status = DockerStatus.STATUS_EXITED
+            msg_cont.name = cont.name
+            msg_cont.id = cont.id
+            msg_cont.status = DockerContainerStatus.STATUS_EXITED
             match cont.status:
                 case 'restarting':
-                    i_status = DockerStatus.STATUS_RESTARTING
+                    msg_cont.status = DockerContainerStatus.STATUS_RESTARTING
                 case 'running':
-                    i_status = DockerStatus.STATUS_RUNNING
+                    msg_cont.status = DockerContainerStatus.STATUS_RUNNING
                 case 'paused':
-                    i_status = DockerStatus.STATUS_PAUSED
+                    msg_cont.status = DockerContainerStatus.STATUS_PAUSED
                 case 'exited':
-                    i_status = DockerStatus.STATUS_EXITED
-            msg.states.append(i_status)
+                    msg_cont.status = DockerContainerStatus.STATUS_EXITED
             c_stats.append(cs)
+            msg.containers.append(msg_cont)
 
         for i in range(len(c_stats)):
             cs = c_stats[i]
@@ -195,51 +193,65 @@ class AgentController(Node):
                 case _: clr = 'cyan'
             
             if cs['status'] == 'running':
-                print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {self.format_bytes(cs["block_io_read"], True)} / {self.format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
-                self.clear_line()
-                self.last_printed_lines += 1
-                # print(f'Stats: {str(cs["stats_keys"])}', end=end)
-                # self.last_printed_lines += 2
+                self.print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {self.format_bytes(cs["block_io_read"], True)} / {self.format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
             else:
-                print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
-                self.clear_line()
-                self.last_printed_lines += 1
+                self.print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
         
         if self.docker_pub and self.context.ok():
             self.docker_pub.publish(msg)
-           
-    async def get_top(self):
+    
+    
+    async def get_system_info(self):
         cpu_count = psutil.cpu_count()
         cpu_times = psutil.cpu_times_percent(interval=1, percpu=True)
         mem = psutil.virtual_memory()
         swp = psutil.swap_memory()
         
-        # print(f'[CPU] {cpu_count}', end='\n')
-        # self.last_printed_lines += 1
+        msg = SystemInfo()
+        self.set_header(msg)
+        
+        msg.cpu = []
         i = 0
         for cpu in cpu_times:
-            print(f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
-            self.clear_line()
+            self.print(f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
             i += 1
-            self.last_printed_lines += 1
-        # print(f'[MEM] {str(mem)}', end='\n')
-        # print(f'[SWP] {str(swp)}', end='\n')
+            msg_cpu = CPUStatusInfo()
+            msg_cpu.user_percent = cpu.user
+            msg_cpu.nice_percent = cpu.nice
+            msg_cpu.system_percent = cpu.system
+            msg_cpu.idle_percent = cpu.idle
+            msg.cpu.append(msg_cpu)
         
-        print(f'[MEM] Tot:{self.format_bytes(mem.total)} Avail:{self.format_bytes(mem.available)} Used:{self.format_bytes(mem.used)} Free:{self.format_bytes(mem.free)} Buff:{self.format_bytes(mem.buffers)} Shar:{self.format_bytes(mem.shared)} Cach:{self.format_bytes(mem.cached)}')
-        self.clear_line()
-        # endl = '' if (not self.disk_enabled and make_last_line) else '\n'
-        print(f'[SWP] Tot:{self.format_bytes(swp.total)} Used:{self.format_bytes(swp.used)} Free:{self.format_bytes(swp.free)}')
-        self.clear_line()
-        self.last_printed_lines += 2
-    
-    async def get_disk(self):
+        self.print(f'[MEM] Tot:{self.format_bytes(mem.total)} Avail:{self.format_bytes(mem.available)} Used:{self.format_bytes(mem.used)} Free:{self.format_bytes(mem.free)} Buff:{self.format_bytes(mem.buffers)} Shar:{self.format_bytes(mem.shared)} Cach:{self.format_bytes(mem.cached)}')
+        msg.mem_total_bytes = mem.total
+        msg.mem_available_bytes = mem.available
+        msg.mem_used_bytes = mem.used
+        msg.mem_free_bytes = mem.free
+        msg.mem_buffers_bytes = mem.buffers
+        msg.mem_shared_bytes = mem.shared
+        msg.mem_cached_bytes = mem.cached
+
+        self.print(f'[SWP] Tot:{self.format_bytes(swp.total)} Used:{self.format_bytes(swp.used)} Free:{self.format_bytes(swp.free)}')
+        msg.swp_total_bytes = swp.total
+        msg.swp_used_bytes = swp.used
+        msg.swp_free_bytes = swp.free
+        
         i = 0
+        msg.disk = []
         for disk_path in self.disk_paths:
             dsk = psutil.disk_usage(disk_path)
             i += 1
-            print(f'[DSK {disk_path}] Tot:{self.format_bytes(dsk.total)} Used:{self.format_bytes(dsk.used)} Free:{self.format_bytes(dsk.free)}')
-            self.clear_line()
-            self.last_printed_lines += 1
+            self.print(f'[DSK {disk_path}] Tot:{self.format_bytes(dsk.total)} Used:{self.format_bytes(dsk.used)} Free:{self.format_bytes(dsk.free)}')    
+            msg_dsk = DiskVolumeStatusInfo()
+            msg_dsk.path = disk_path
+            msg_dsk.total_bytes = dsk.total
+            msg_dsk.used_bytes = dsk.used
+            msg_dsk.free_bytes = dsk.free
+            msg.disk.append(msg_dsk)
+        
+        if self.sysinfo_pub and self.context.ok():
+            self.sysinfo_pub.publish(msg)
+
     
     async def introspection(self):
 
@@ -256,24 +268,32 @@ class AgentController(Node):
                 self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerStatus')
                 self.docker_enabled = False
         
+        if self.system_info_enabled:
+            qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST,
+                             depth=1,
+                             reliability=QoSReliabilityPolicy.BEST_EFFORT
+                             )
+            self.sysinfo_pub = self.create_publisher(SystemInfo, self.system_info_topic, qos)
+            if self.sysinfo_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.system_info_topic}, msg_type=SystemInfo')
+                self.system_info_enabled = False
+        
         while not self.shutting_down:
             
             if not self.scroll_enabled and self.last_printed_lines > 0:
                 for i in range(self.last_printed_lines+1):
                     sys.stdout.write("\033[F") # Cursor up one line
                 sys.stdout.write("\r\n")
+                self.clear_line()
+                self.last_printed_lines = 0
                 
-            print(f'Introspecting ({str(c)})...')
-            self.clear_line()
+            self.print(f'Introspecting ({str(c)})...')
             c += 1 # counter
-            self.last_printed_lines = 1        
 
             if self.docker_enabled:
                 await self.get_docker_containers()
-            if self.top_enabled:
-                await self.get_top()
-            if self.disk_enabled:
-                await self.get_disk()
+            if self.system_info_enabled:
+                await self.get_system_info()
             await asyncio.sleep(self.discovery_period)
             
         print(f'\nIntrospection stopped')
@@ -290,40 +310,39 @@ class AgentController(Node):
         
         self.declare_parameter('docker', True)
         self.docker_enabled = self.get_parameter('docker').get_parameter_value().bool_value
-        self.declare_parameter('docker_topic', '/_phntm_docker')
+        self.declare_parameter('docker_topic', '/docker_info')
         self.docker_topic = self.get_parameter('docker_topic').get_parameter_value().string_value
         if self.docker_enabled:
             print(f'Monitoring Docker -> {self.docker_topic}')
             
         self.declare_parameter('docker_control', True)
         self.docker_control_enabled = self.get_parameter('docker_control').get_parameter_value().bool_value
-        self.declare_parameter('docker_control_topic', '/_phntm_docker_control')
+        self.declare_parameter('docker_control_topic', '/docker_control')
         self.docker_control_topic = self.get_parameter('docker_control_topic').get_parameter_value().string_value
         if self.docker_control_enabled:
             print(f'Docker control enabled <- {self.docker_control_topic}')
         
-        self.declare_parameter('top', True)
-        self.top_enabled = self.get_parameter('top').get_parameter_value().bool_value
-        self.declare_parameter('top_topic', '/_phntm_top')
-        self.top_topic = self.get_parameter('top_topic').get_parameter_value().string_value
-        if self.top_enabled:
-            print(f'Monitoring CPU/MEM/SWP -> {self.top_topic}')
-        self.declare_parameter('disk', True)
-        self.disk_enabled = self.get_parameter('disk').get_parameter_value().bool_value
-        self.declare_parameter('disk_paths', [ '/' ]) 
-        self.disk_paths = self.get_parameter('disk_paths').get_parameter_value().string_array_value
-        self.declare_parameter('disk_topic', '/_phntm_disk')
-        self.disk_topic = self.get_parameter('disk_topic').get_parameter_value().string_value
-        if len(self.disk_paths) == 0 or (len(self.disk_paths) == 1 and self.disk_paths[0] == ''):
-            self.disk_enabled = False
-        if self.disk_enabled:
-            print(f'Monitoring disk space at {str(self.disk_paths)} -> {self.disk_topic}')
-        
+        self.declare_parameter('system_info', True)
+        self.system_info_enabled = self.get_parameter('system_info').get_parameter_value().bool_value
+        self.declare_parameter('system_info_topic', '/system_info')
+        self.system_info_topic = self.get_parameter('system_info_topic').get_parameter_value().string_value
+        if self.system_info_enabled:
+            print(f'System monitoring CPU/MEM/SWP+disks -> {self.system_info_topic}')
+      
+        self.declare_parameter('disk_volume_paths', [ '/' ]) 
+        self.disk_paths = self.get_parameter('disk_volume_paths').get_parameter_value().string_array_value
+        if self.system_info_enabled:
+            print(f'Monitoring disk volumes: {str(self.disk_paths)}')
+    
         
     async def shutdown_cleanup(self):
         if self.docker_pub:
             self.docker_pub.destroy()
             self.docker_pub = None
+            
+        if self.sysinfo_pub:
+            self.sysinfo_pub.destroy()
+            self.sysinfo_pub = None
 
 
 async def main_async(args):
