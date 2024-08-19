@@ -36,23 +36,30 @@ class AgentController(Node):
         
         self.shutting_down:bool = False
         
+        node_name ='phntm_agent'
+        self.hostname = ''
+        
         # load node name from config
         config_path = os.path.join(
             '/ros2_ws/',
             'phntm_agent_params.yaml'
             )
-        with open(config_path, 'r') as file:
-            config = yaml.safe_load(file)
-            self.hostname = config["/**"]["ros__parameters"].get('host_name', 'localhost')
+        try:
+            with open(config_path, 'r') as file:
+                config = yaml.safe_load(file)
+                self.hostname = config["/**"]["ros__parameters"].get('host_name', 'localhost')
+                node_name = f'{node_name}_{self.hostname}'
+        except FileNotFoundError:
+            pass
         
-        super().__init__(node_name=f'phntm_agent_{self.hostname}',
+        super().__init__(node_name=f'{node_name}',
                          use_global_arguments=True)
         
         self.load_config()  # load the rest the ros way
        
         self.l = self.get_logger()
         self.l.set_level(rclpy.logging.LoggingSeverity.DEBUG) 
-        self.l.debug(f'Phntm Agent @ {self.hostname} started')    
+        self.l.debug(f'Phntm Agent{" @ "+self.hostname if self.hostname != "" else ""} started')    
         
         self.last_printed_lines = 0
         self.docker_pub = None
