@@ -8,7 +8,7 @@ This package provides the following functionality to phntm_bridge:
 - Wireless signal quality monitoring
 - Wireless network scanning and roaming (see below)
 
-One Agent node is expected to run alongside each phntm_bridge node for optimal functionality. It is also possible to install an additional Agent on each linux-based board other that the one running the phntm_bridge node to provide monitoring and control capabilities via Phtn
+One Agent node is expected to run alongside each phntm_bridge node for optimal performance. It is also possible to install additional Agent nodes on each physical linux-based board your robot is using, to provide the same monitoring and control capabilities via Phtnm Bridge on more complex systems.
 
 ## Install
 
@@ -38,6 +38,6 @@ Scanning and roaming only works with certain wireless hardware chipsets and some
 
 In case of a failure, your machine might need rebooting or to be manually connected to the desired AP again. The best way to switch back to your original access point is using nmcli from the command line:
 ```bash
-nmcli d wifi # performs a fresh scan \
+nmcli d wifi # performs a fresh scan
 nmcli d wifi connect %YOUR_AP_BSSID% # switch to the desired BSSID
 ```
