@@ -36,6 +36,12 @@ RUN pip install numpy --force-reinstall
 # docekr ctrl
 RUN pip install docker
 
+# wifi scanning
+RUN apt-get install -y wireless-tools libiw-dev
+RUN pip install iwlib
+# wifi ctrl via shared /var/run/wpa_supplicant/ (also needs shared /tmp)
+RUN apt-get install -y wpasupplicant
+
 # generate entrypoint script
 RUN echo '#!/bin/bash \n \
 set -e \n \
