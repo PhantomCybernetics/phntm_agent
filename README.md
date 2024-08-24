@@ -1,4 +1,4 @@
-" Phntm Agent
+# Phntm Agent
 
 This package provides the following functionality to phntm_bridge:
 - Docker container discovery and system stats
@@ -10,7 +10,7 @@ This package provides the following functionality to phntm_bridge:
 
 One Agent node is expected to run alongside each phntm_bridge node for optimal functionality. It is also possible to install an additional Agent on each linux-based board other that the one running the phntm_bridge node to provide monitoring and control capabilities via Phtn
 
-"" Install
+## Install
 
 `sudo usermod -aG docker ${USER}`
 Log in and out
@@ -23,12 +23,12 @@ docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO \
 .
 ```
 
-"" Launch
+## Launch
 ```bash
 ros2 launch phntm_agent agent_launch.py
 ```
 
-"" Wireless Network Scanning and Roaming
+## Wireless Network Scanning and Roaming
 
 Phntm Bridge enables wireless network scanning and automatic switching to a different AP within the same network (same SSID, different BSSID) known as roaming. This is very useful when your robot needs to navigate a vast area covered by multiple APs of the same network.
 
