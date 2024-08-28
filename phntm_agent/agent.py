@@ -51,7 +51,7 @@ class AgentController(Node):
             with open(config_path, 'r') as file:
                 config = yaml.safe_load(file)
                 self.hostname = config["/**"]["ros__parameters"].get('host_name', 'localhost')
-                node_name = f'{node_name}_{self.hostname}'
+                node_name = f'{node_name}_{self.hostname}' if self.hostname else node_name
         except FileNotFoundError:
             pass
         
