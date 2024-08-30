@@ -14,6 +14,7 @@ import sys
 import psutil
 import math
 import time
+import signal
 from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult
 from phntm_interfaces.srv import DockerCmd, IWScanCmd
 from .lib import format_bytes, clear_line, print_line, set_message_header
@@ -307,6 +308,8 @@ class AgentController(Node):
                 
             cs['name'] = cont.name
             cs['status'] = cont.status
+            if self.shutting_down:
+                cs['status'] = 'exited'
             cs['short_id'] = cont.short_id
             cs['id'] = cont.id
             msg_cont.name = cont.name
@@ -339,6 +342,8 @@ class AgentController(Node):
         
         if self.docker_pub and self.context.ok():
             self.docker_pub.publish(msg)
+        elif self.shutting_down:
+          print('Error pushing docker state after shutdown')  
     
     
     async def get_system_info(self):
@@ -550,7 +555,11 @@ class AgentController(Node):
             print(f'Network control enabled'+(' with roaming' if self.iw_roaming_enabled else ''))
     
     async def shutdown_cleanup(self):
+        
         if self.docker_pub:
+            print(f'Pushing shutdown state docker containers...')
+            await self.get_docker_containers()
+            await asyncio.sleep(3)
             self.docker_pub.destroy()
             self.docker_pub = None
             
@@ -562,7 +571,7 @@ class AgentController(Node):
             self.iw_pub.destroy()
             self.iw_pub = None
 
-
+agent_node = None
 async def main_async(args):
     rclpy.init()
     
@@ -592,7 +601,13 @@ class MyPolicy(asyncio.DefaultEventLoopPolicy):
         selector = selectors.SelectSelector()
         return asyncio.SelectorEventLoop(selector)
 
+def sigterm_handler():
+    print('sigterm_handler: SHUTTING DOWN')
+    agent_node.shutting_down = True
+
 def main(args=None): # ros2 calls this, so init here
+    signal.signal(signal.SIGTERM, sigterm_handler) # TODO rclpy catches these so dunno
+    signal.signal(signal.SIGINT, sigterm_handler)
     asyncio.set_event_loop_policy(MyPolicy())
     try:
         asyncio.run(main_async(args))
