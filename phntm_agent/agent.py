@@ -247,9 +247,9 @@ class AgentController(Node):
             'pids': 0,
             'block_io_read': 0,
             'block_io_write': 0,
-            'mem': 0, #TODO ignoring for now, mem not working on linux
+            'mem': 0, # TODO ignoring for now, mem not working on linux
             'mem_perc': 0.0,
-            'net_read': 0, #TODO ignoring for now, net not working on linux
+            'net_read': 0, # TODO ignoring for now, net not working on linux
             'net_write': 0,
         }
         
@@ -258,12 +258,12 @@ class AgentController(Node):
         
         if 'cpu_stats' in stats and 'system_cpu_usage' in stats['cpu_stats'] \
         and 'precpu_stats' in stats and 'system_cpu_usage' in stats['precpu_stats']:
-            cpu_usage = (stats['cpu_stats']['cpu_usage']['total_usage']
+            cpu_delta = (stats['cpu_stats']['cpu_usage']['total_usage']
                         - stats['precpu_stats']['cpu_usage']['total_usage'])
-            cpu_system = (stats['cpu_stats']['system_cpu_usage']                    
+            system_delta = (stats['cpu_stats']['system_cpu_usage']                    
                         - stats['precpu_stats']['system_cpu_usage'])
             res['num_cpus'] = stats['cpu_stats']["online_cpus"]
-            res['cpu_perc'] = (cpu_usage / cpu_system) * res['num_cpus'] * 100.0
+            res['cpu_perc'] = (cpu_delta / system_delta) * res['num_cpus'] * 100.0
             res['cpu_max_perc'] = res['num_cpus'] * 100
 
         if 'blkio_stats' in stats and 'io_service_bytes_recursive' in stats['blkio_stats']\
@@ -273,7 +273,6 @@ class AgentController(Node):
                     res['block_io_read'] = blkio_stats['value']
                 elif blkio_stats['op'] == 'write':
                     res['block_io_write'] = blkio_stats['value']
-
         return res
 
     
@@ -289,12 +288,7 @@ class AgentController(Node):
             msg_cont = DockerContainerStatus()
             cs = {}
             if cont.status == 'running':
-                if not cont.id in self.docker_stats_streams:
-                    self.docker_stats_streams[cont.id] = cont.stats(stream=True, decode=True)
-                stats = next(self.docker_stats_streams[cont.id])
-                
-                # stats_decoded = json.loads(stats)
-                # print(json.dumps(stats, indent=4))
+                stats = cont.stats(stream=False, decode=False) # stream returns wrong data, don't use 
                 cs = self.calculate_docker_stats(stats)
                 msg_cont.pids = cs['pids']
                 msg_cont.cpu_percent = cs['cpu_perc']
