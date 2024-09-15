@@ -495,7 +495,7 @@ class AgentController(Node):
                 await self.get_system_info()
             if self.iw_enabled:
                 await self.get_iw_info()
-            await asyncio.sleep(self.discovery_period)
+            await asyncio.sleep(self.get_parameter('refresh_period_sec').get_parameter_value().double_value)
             
         print(f'\nIntrospection stopped')
         
@@ -505,9 +505,9 @@ class AgentController(Node):
         self.declare_parameter('scroll', False)
         self.scroll_enabled = self.get_parameter('scroll').get_parameter_value().bool_value
         
-        self.declare_parameter('discovery_period_sec', 1.0)
-        self.discovery_period = self.get_parameter('discovery_period_sec').get_parameter_value().double_value
-        print(f'Discovery period is {self.discovery_period:.0f}s')
+        self.declare_parameter('refresh_period_sec', 1.0)
+        refresh_period_sec = self.get_parameter('refresh_period_sec').get_parameter_value().double_value
+        print(f'Refresh period is {refresh_period_sec:.0f}s')
         
         self.declare_parameter('docker', True)
         self.docker_enabled = self.get_parameter('docker').get_parameter_value().bool_value
