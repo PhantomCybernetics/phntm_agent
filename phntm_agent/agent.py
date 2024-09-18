@@ -3,6 +3,7 @@ from rclpy.node import Node, Parameter, QoSProfile, Publisher
 from rclpy.qos import QoSHistoryPolicy, QoSReliabilityPolicy, DurabilityPolicy
 from rclpy.duration import Duration, Infinite
 from rclpy.serialization import deserialize_message
+import subprocess
 import asyncio
 import traceback
 import selectors
@@ -17,7 +18,7 @@ import time
 import signal
 from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult
 from phntm_interfaces.srv import DockerCmd, IWScanCmd
-from .lib import format_bytes, clear_line, print_line, set_message_header
+from .lib import format_bytes, print_line, set_message_header
 
 import docker
 docker_client = None
@@ -65,11 +66,15 @@ class AgentController(Node):
         self.l.set_level(rclpy.logging.LoggingSeverity.DEBUG) 
         self.l.debug(f'Phntm Agent{" @ "+self.hostname if self.hostname != "" else ""} started')    
         
-        self.last_printed_lines = 0
+        if not self.log_output:
+            self.l.info(f'Logging disabled by config')
+        
         self.docker_pub = None
-        self.docker_sub = None
+        self.docker_task = None
         self.sysinfo_pub = None
+        self.sysinfo_task = None
         self.iw_pub = None
+        self.iw_task = None
         
         if self.iw_enabled:
             self.iw_max_quality:float = iwlib.utils.get_max_quality(self.iw_interface)
@@ -276,7 +281,7 @@ class AgentController(Node):
         return res
 
     
-    async def get_docker_containers(self):
+    def get_docker_containers(self):
         docker_containers = docker_client.containers.list(all=True)
          
         msg = DockerStatus()
@@ -329,10 +334,11 @@ class AgentController(Node):
                 case 'exited': clr = 'red'
                 case _: clr = 'cyan'
             
-            if cs['status'] == 'running':
-                print_line(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {format_bytes(cs["block_io_read"], True)} / {format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
-            else:
-                print_line(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
+            if self.log_output:
+                if cs['status'] == 'running':
+                    print_line(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {format_bytes(cs["block_io_read"], True)} / {format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
+                else:
+                    print_line(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
         
         if self.docker_pub and self.context.ok():
             self.docker_pub.publish(msg)
@@ -340,7 +346,7 @@ class AgentController(Node):
           print('Error pushing docker state after shutdown')  
     
     
-    async def get_system_info(self):
+    def get_system_info(self):
         cpu_count = psutil.cpu_count()
         cpu_times = psutil.cpu_times_percent(interval=1, percpu=True)
         mem = psutil.virtual_memory()
@@ -352,7 +358,8 @@ class AgentController(Node):
         msg.cpu = []
         i = 0
         for cpu in cpu_times:
-            print_line(self, f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
+            if self.log_output:
+                print_line(self, f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
             i += 1
             msg_cpu = CPUStatusInfo()
             msg_cpu.user_percent = cpu.user
@@ -361,7 +368,8 @@ class AgentController(Node):
             msg_cpu.idle_percent = cpu.idle
             msg.cpu.append(msg_cpu)
         
-        print_line(self, f'[MEM] Tot:{format_bytes(mem.total)} Avail:{format_bytes(mem.available)} Used:{format_bytes(mem.used)} Free:{format_bytes(mem.free)} Buff:{format_bytes(mem.buffers)} Shar:{format_bytes(mem.shared)} Cach:{format_bytes(mem.cached)}')
+        if self.log_output:
+            print_line(self, f'[MEM] Tot:{format_bytes(mem.total)} Avail:{format_bytes(mem.available)} Used:{format_bytes(mem.used)} Free:{format_bytes(mem.free)} Buff:{format_bytes(mem.buffers)} Shar:{format_bytes(mem.shared)} Cach:{format_bytes(mem.cached)}')
         msg.mem_total_bytes = mem.total
         msg.mem_available_bytes = mem.available
         msg.mem_used_bytes = mem.used
@@ -370,7 +378,8 @@ class AgentController(Node):
         msg.mem_shared_bytes = mem.shared
         msg.mem_cached_bytes = mem.cached
 
-        print_line(self, f'[SWP] Tot:{format_bytes(swp.total)} Used:{format_bytes(swp.used)} Free:{format_bytes(swp.free)}')
+        if self.log_output:
+            print_line(self, f'[SWP] Tot:{format_bytes(swp.total)} Used:{format_bytes(swp.used)} Free:{format_bytes(swp.free)}')
         msg.swp_total_bytes = swp.total
         msg.swp_used_bytes = swp.used
         msg.swp_free_bytes = swp.free
@@ -380,7 +389,8 @@ class AgentController(Node):
         for disk_path in self.disk_paths:
             dsk = psutil.disk_usage(disk_path)
             i += 1
-            print_line(self, f'[DSK {disk_path}] Tot:{format_bytes(dsk.total)} Used:{format_bytes(dsk.used)} Free:{format_bytes(dsk.free)}')    
+            if self.log_output:
+                print_line(self, f'[DSK {disk_path}] Tot:{format_bytes(dsk.total)} Used:{format_bytes(dsk.used)} Free:{format_bytes(dsk.free)}')    
             msg_dsk = DiskVolumeStatusInfo()
             msg_dsk.path = disk_path
             msg_dsk.total_bytes = dsk.total
@@ -392,9 +402,9 @@ class AgentController(Node):
             self.sysinfo_pub.publish(msg)
 
 
-    async def get_iw_info(self):
+    def get_iw_info(self):
         
-        cfg = await asyncio.get_event_loop().run_in_executor(None, iwlib.iwconfig.get_iwconfig, self.iw_interface)
+        cfg = iwlib.iwconfig.get_iwconfig(self.iw_interface)
         msg = IWStatus()
 
         set_message_header(self, msg)
@@ -430,7 +440,8 @@ class AgentController(Node):
             self.last_access_point = msg.access_point
             self.last_frequency = msg.frequency
 
-            print_line(self, f'[NET] Q:{str(msg.quality)}% L:{str(msg.level)} N:{str(msg.noise)} AP:{msg.access_point}')
+            if self.log_output:
+                print_line(self, f'[NET] Q:{str(msg.quality)}% L:{str(msg.level)} N:{str(msg.noise)} AP:{msg.access_point}')
         
             if self.iw_pub and self.context.ok():
                 self.iw_pub.publish(msg)
@@ -479,35 +490,31 @@ class AgentController(Node):
             
             rclpy.spin_once(self, timeout_sec=0.1)
             
-            if not self.scroll_enabled and self.last_printed_lines > 0:
-                for i in range(self.last_printed_lines+1):
-                    sys.stdout.write("\033[F") # Cursor up one line
-                sys.stdout.write("\r\n")
-                clear_line(self)
-                self.last_printed_lines = 0
-                
-            print_line(self, f'Introspecting ({str(c)})...')
+            # print_line(self, f'Agent Pass ({str(c)})...')
             c += 1 # counter
 
-            if self.docker_enabled:
-                await self.get_docker_containers()
-            if self.system_info_enabled:
-                await self.get_system_info()
-            if self.iw_enabled:
-                await self.get_iw_info()
+            if self.docker_enabled and (not self.docker_task or self.docker_task.done()):
+                self.docker_task = asyncio.get_event_loop().run_in_executor(None, self.get_docker_containers)
+                
+            if self.system_info_enabled and (not self.sysinfo_task or self.sysinfo_task.done()):
+                self.sysinfo_task =  asyncio.get_event_loop().run_in_executor(None, self.get_system_info)
+                
+            if self.iw_enabled and (not self.iw_task or self.iw_task.done()):
+                self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_iw_info)
+            
             await asyncio.sleep(self.get_parameter('refresh_period_sec').get_parameter_value().double_value)
             
-        print(f'\nIntrospection stopped')
+        print(f'\Loop stopped')
         
     
     def load_config(self):
         
-        self.declare_parameter('scroll', False)
-        self.scroll_enabled = self.get_parameter('scroll').get_parameter_value().bool_value
+        self.declare_parameter('log', False)
+        self.log_output = self.get_parameter('log').get_parameter_value().bool_value
         
         self.declare_parameter('refresh_period_sec', 1.0)
         refresh_period_sec = self.get_parameter('refresh_period_sec').get_parameter_value().double_value
-        print(f'Refresh period is {refresh_period_sec:.0f}s')
+        print(f'Refresh period is {refresh_period_sec:.1f}s')
         
         self.declare_parameter('docker', True)
         self.docker_enabled = self.get_parameter('docker').get_parameter_value().bool_value

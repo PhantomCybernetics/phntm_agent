@@ -20,17 +20,8 @@ def format_bytes(b, mib=False):
     else:
         return f'0B'
 
-    
-def clear_line(node):
-    if not node.scroll_enabled:
-        sys.stdout.write("\033[K")
-
-
 def print_line(node, str):
     print(str)
-    clear_line(node)
-    node.last_printed_lines += 1
-
 
 def set_message_header(node, msg):
     time_nanosec:int = time.time_ns()
