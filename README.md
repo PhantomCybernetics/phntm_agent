@@ -1,8 +1,10 @@
 # Phantom Bridge Agent
 
-This is a supporting package for the Phantom Brige. It monitors system resources (such as memory, disk usage and CPU load), monitors Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their resource use. It also enables extraction of files from all running Docker containers.
+This is a supporting package for the [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge).
 
-Typically, this package is installed with the Phantom Bridge and runs inside its Docker container. It can be also installed in a standalone mode, which is useful for distributed ROS2 systems. 
+The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources. It also enables extraction of files from any running Docker container, identified either with absolute path or ROS2 package:// format.
+
+Typically, the Agent is installed with the Phantom Bridge and runs inside its Docker container. However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. 
 
 ## Install (Standalone)
 
@@ -30,7 +32,7 @@ ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build
 ```
 
 ### Configure the Agent
-Here's an example config file, e.g. `~/phntm_agent.yaml`.
+Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/agent-config.html).
 ```yaml
 /**:
   ros__parameters:
@@ -58,16 +60,13 @@ services:
     hostname: phntm-agent.local
     restart: unless-stopped # restarts after first run
     privileged: true # agent needs this
-    # cpuset: '0,1,2' # consider dedicating a few CPU cores for maximal responsiveness
     network_mode: host # webrtc needs this
     ipc: host # agent needs this to see other local containers
     volumes:
       - ~/phntm_agent:/ros2_ws/src/phntm_agent # live repo mapped here for easy updates
       - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here
-      - /var/run:/host_run # docker file extractor and wifi control need this
-      - /tmp:/tmp # wifi control needs this
-    devices:
-      - /dev:/dev # LED control needs this
+      - /var/run:/host_run # docker file extractor and wi-fi control need this
+      - /tmp:/tmp # wi-fi control needs this
     command:
       ros2 launch phntm_agent agent_launch.py
 ```
@@ -79,7 +78,7 @@ docker compose up phntm_agent
 
 ## Upgrading
 
-Unless the Dockerfile changes between versions (which doesn't happen very often), all you need to do to upgrade the Phantom Agent is to pull updates from this repo and restart the Docker container.
+Unless the Dockerfile changes between versions (which doesn't happen very often), all you need to do to upgrade the Phantom Agent is to pull updates from this repo and then restart the Docker container.
 
 ```bash
 cd ~/phntm_agent
@@ -91,3 +90,4 @@ Should the Dockerfile change, you need to rebuild the Docker image too.
 
 ## See also
 - [Documentation](https://docs.phntm.io/bridge) Full Phantom Bridge documentation
+- [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge) Phantom Bridge repo and install instructions
