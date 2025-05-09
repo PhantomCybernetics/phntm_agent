@@ -73,7 +73,18 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
         for container in docker_containers:
             cont_pkg_prefix = ""    
             if pkg:
-                cmd = f'/bin/bash -c "export PS1=phntm && . /opt/ros/{ros_distro}/setup.bash && . ~/.bashrc && /opt/ros/{ros_distro}/bin/ros2 pkg prefix {pkg}"'
+                # cmd = f'/bin/bash -c "export PS1=phntm && . /opt/ros/{ros_distro}/setup.bash && . ~/.bashrc && /opt/ros/{ros_distro}/bin/ros2 pkg prefix {pkg}"'
+                cmd = (
+                    '/bin/bash -c "'
+                    'export PS1=phntm && '
+                    '. /opt/ros/$ROS_DISTRO/setup.bash && '
+                    '. ~/.bashrc && '
+                    'if [ -n \\"$ROS_WS\\" ]; then '
+                    '  . $ROS_WS/install/setup.bash; '
+                    'fi && '
+                    f'/opt/ros/$ROS_DISTRO/bin/ros2 pkg prefix {pkg}'
+                    '"'
+                )
                 res = container.exec_run(cmd)
                 if res.exit_code == 1:
                     logger.debug(f'Pkg not found in container {container.name} \nout={res.output}\ncmd={cmd}')
