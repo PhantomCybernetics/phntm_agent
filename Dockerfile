@@ -4,7 +4,12 @@ FROM ros:$ROS_DISTRO
 RUN echo "Building docker image with ROS_DISTRO=$ROS_DISTRO"
 
 RUN apt-get update -y --fix-missing
-RUN apt-get install -y pkg-config
+RUN apt-get install -y pip pkg-config
+
+# dev conveniences
+RUN apt-get install -y vim mc \
+                       iputils-ping net-tools iproute2 \
+                       curl
 
 RUN apt-get install -y python3-setuptools
 RUN apt-get install -y python3-termcolor
@@ -46,8 +51,9 @@ RUN chmod a+x /ros_entrypoint.sh
 RUN echo 'source /opt/ros/'$ROS_DISTRO'/setup.bash' >> /root/.bashrc
 RUN echo 'test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash"' >> /root/.bashrc
 # activate python venv on ~/.bashrc source
+RUN echo 'export PYTHON_VERSION_VENV=$(python3 -c '"'"'import sys; print(".".join(map(str, sys.version_info[:2])))'"'"')' >> /root/.bashrc
 RUN echo 'export PATH="/ros2_ws/ros2_py_venv/bin:$PATH"' >> /root/.bashrc
-RUN echo 'export PYTHONPATH="/ros2_ws/ros2_py_venv/lib/python3.12/site-packages:${PYTHONPATH:-}"' >> /root/.bashrc
+RUN echo 'export PYTHONPATH="/ros2_ws/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}"' >> /root/.bashrc
 
 WORKDIR $ROS_WS
 
