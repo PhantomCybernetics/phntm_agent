@@ -1,5 +1,6 @@
 import asyncio
 
+import rclpy
 from rclpy.node import Node, Publisher
 from rclpy.impl.rcutils_logger import RcutilsLogger
 from phntm_interfaces.msg import FileChunk
@@ -50,24 +51,26 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
         logger.error(f'Bridge requested invalid file {file_url}')
         return None # file not found
     
-    # package file in local fs
-    if local_pkg_prefix and os.path.isfile(local_pkg_prefix + file_url):
-        logger.debug(f'File found in this fs (pkg_prefix={local_pkg_prefix})')
-        f = open(file_url, "rb")  # follows symlinks
-        res = f.read()
-        f.close()
-        return res
-    
-    # absolute path in local fs
-    elif os.path.isfile(file_url):
-        logger.debug(f'File found in this fs')
-        f = open(file_url, "rb") # follows symlinks
-        res = f.read()
-        f.close()
-        return res
+    try:
+        # package file in local fs
+        if local_pkg_prefix and os.path.isfile(local_pkg_prefix + file_url):
+            logger.debug(f'File found in this fs (pkg_prefix={local_pkg_prefix})')
+            f = open(local_pkg_prefix + file_url, "rb")  # follows symlinks
+            res = f.read()
+            f.close()
+            return res
+        # absolute path in local fs
+        elif os.path.isfile(file_url):
+            logger.debug(f'File found in this fs')
+            f = open(file_url, "rb") # follows symlinks
+            res = f.read()
+            f.close()
+            return res
+    except FileNotFoundError:
+        pass # not found locally
     
     # inspect other containers
-    elif docker_client:
+    if docker_client:
         logger.debug(f'File not found in this fs, searching other Docker containers...')
         docker_containers = docker_client.containers.list(all=False)
         for container in docker_containers:
@@ -127,8 +130,11 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
 
 async def produce_file_chunks(file_path:str, file_bytes:bytes, byte_size:int, chunk_size:int, num_parts:int, pub:Publisher, node:Node, logger:RcutilsLogger):
     
+    # make sure reply gets produced before we start with chunks
+    rclpy.spin_once(node, timeout_sec=0.01) 
+
     await asyncio.sleep(0.01) # wait a bit to make sure the sending starts after the service reply
-    
+
     logger.info(f' Producing {byte_size}B as {num_parts} chunks')
     
     offset = 0
@@ -144,6 +150,7 @@ async def produce_file_chunks(file_path:str, file_bytes:bytes, byte_size:int, ch
         
         if node.context.ok():
             pub.publish(msg)
+            rclpy.spin_once(node, timeout_sec=0.01)
             logger.debug(f"Produced chunk {index + 1}/{num_parts}")
         else:
             logger.error(f"Failed producing chunk {index + 1}/{num_parts}")
