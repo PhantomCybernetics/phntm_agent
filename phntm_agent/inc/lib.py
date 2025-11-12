@@ -90,7 +90,7 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
                 )
                 res = container.exec_run(cmd)
                 if res.exit_code == 1:
-                    logger.debug(f'Pkg not found in container {container.name} \nout={res.output}\ncmd={cmd}')
+                    logger.debug(f'Pkg not found in container {container.name}')
                     continue
                 else:
                     cont_pkg_prefix = res.output.decode("ASCII").rstrip() + '/share'
@@ -115,7 +115,7 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
             
             tar_bytes = b''.join(b_arr)
             
-            logger.debug(f'Making tar obj w {len(tar_bytes)} B')
+            logger.debug(f'Making tar obj with {format_bytes(len(tar_bytes))}')
             
             file_like_object = io.BytesIO(tar_bytes)
             tar = tarfile.open(fileobj=file_like_object)
@@ -135,7 +135,7 @@ async def produce_file_chunks(file_path:str, file_bytes:bytes, byte_size:int, ch
 
     await asyncio.sleep(0.01) # wait a bit to make sure the sending starts after the service reply
 
-    logger.info(f' Producing {byte_size}B as {num_parts} chunks')
+    logger.info(f' Producing {format_bytes(byte_size)} as {num_parts} chunks')
     
     offset = 0
     for index in range(num_parts):

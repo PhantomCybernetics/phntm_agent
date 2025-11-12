@@ -152,7 +152,7 @@ class AgentController(Node):
     def iw_scan_command_srv_callback(self, request:IWScanCmd.Request, response:IWScanCmd.Response):
         response.err = 0
         
-        self.get_logger().info(c(f'IW scan request received; roam={request.attempt_roam}', 'cyan'))
+        self.get_logger().info(f'IW scan request received; roam={request.attempt_roam}')
                 
         if not self.iw_supports_scanning:
             response.err = 3
@@ -174,7 +174,7 @@ class AgentController(Node):
              response.msg = f'Exception while scanning: {str(e)}'
              return response
 
-        print(f'IW Monitor scan results: ')
+        self.get_logger().info(f'IW Monitor scan results: ')
         
         response.scan_results = []
         roaming_candidates = []
@@ -228,7 +228,7 @@ class AgentController(Node):
                 response.err = 3
                 response.msg = 'Roaming disabled by Agent'
             else:
-                print(f'IW: Seeing {len(roaming_candidates)} roaming candidates for {self.last_essid}')
+                self.get_logger().info(f'IW: Seeing {len(roaming_candidates)} roaming candidates for {self.last_essid}')
                 
                 roaming_candidates = sorted(roaming_candidates, key=lambda x: x.signal, reverse=True)        
                 bestest = roaming_candidates[0]
@@ -236,11 +236,11 @@ class AgentController(Node):
                 if bestest.access_point.lower() == self.last_access_point.lower():
                     response.res = 0
                     response.msg = 'Not roaming, current AP seems the best'
-                    print(c(f" >>> Not roaming, current AP seems the best", 'cyan'))
+                    self.get_logger().info(f" >>> Not roaming, current AP seems the best")
                 else:
-                    print(c(f' >>> Attenmpting to roam to "{bestest.essid}" {bestest.access_point} with signal={bestest.signal}', 'cyan'))
+                    self.get_logger().info(f' >>> Attenmpting to roam to "{bestest.essid}" {bestest.access_point} with signal={bestest.signal}')
                     wpa_cli_res = os.system(f'wpa_cli -p /host_run/wpa_supplicant/ -i {self.iw_interface} roam {bestest.access_point}')
-                    print(f'wpa_cli_res={wpa_cli_res}')
+                    self.get_logger().info(f'wpa_cli_res={wpa_cli_res}')
                     response.res = wpa_cli_res
                     response.msg = f'Switched to "{bestest.essid}" {bestest.access_point}'
 
@@ -558,9 +558,9 @@ class AgentController(Node):
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         except Exception as e:
-            print(c('Exception in agent_loop: {e}', 'red'))
+            self.get_logger().error(f'Exception in agent_loop: {e}')
         
-        print(f'Loop stopped')
+        self.get_logger().debug(f'Loop stopped')
         
     
     def load_config(self):
@@ -570,29 +570,29 @@ class AgentController(Node):
         
         self.declare_parameter('agent_update_period_sec', 0.5)
         self.refresh_period_sec = self.get_parameter('agent_update_period_sec').get_parameter_value().double_value
-        print(f'Refresh period is {self.refresh_period_sec:.1f}s')
+        self.get_logger().info(f'Refresh period is {self.refresh_period_sec:.1f}s')
         
         self.declare_parameter('docker_monitor_topic', '/docker_info')
         self.docker_topic = self.get_parameter('docker_monitor_topic').get_parameter_value().string_value
         self.docker_enabled = self.docker_topic != ''
         if self.docker_enabled:
-            print(f'Monitoring Docker -> {self.docker_topic}')
+            self.get_logger().info(f'Monitoring Docker -> {self.docker_topic}')
             
         self.declare_parameter('enable_docker_control', True)
         self.docker_control_enabled = self.get_parameter('enable_docker_control').get_parameter_value().bool_value
         if self.docker_control_enabled:
-            print(f'Docker control enabled')
+            self.get_logger().info(f'Docker control enabled')
         
         self.declare_parameter('system_info_topic', '/system_info')
         self.system_info_topic = self.get_parameter('system_info_topic').get_parameter_value().string_value
         self.system_info_enabled = self.system_info_topic != ''
         if self.system_info_enabled:
-            print(f'System monitoring CPU/MEM/SWP+disks -> {self.system_info_topic}')
+            self.get_logger().info(f'System monitoring CPU/MEM/SWP+disks -> {self.system_info_topic}')
       
         self.declare_parameter('disk_volume_paths', [ '/' ]) 
         self.disk_paths = self.get_parameter('disk_volume_paths').get_parameter_value().string_array_value
         if self.system_info_enabled:
-            print(f'Monitoring disk volumes: {str(self.disk_paths)}')
+            self.get_logger().info(f'Monitoring disk volumes: {str(self.disk_paths)}')
             
         self.declare_parameter('wifi_interface', 'wlan0')
         self.iw_interface = self.get_parameter('wifi_interface').get_parameter_value().string_value
@@ -600,14 +600,14 @@ class AgentController(Node):
         self.iw_monitor_topic = self.get_parameter('wifi_monitor_topic').get_parameter_value().string_value
         self.iw_enabled = self.iw_interface and self.iw_monitor_topic
         if self.iw_enabled:
-            print(f'Monitoring netwrork interface {self.iw_interface} -> {self.iw_monitor_topic}')
+            self.get_logger().info(f'Monitoring netwrork interface {self.iw_interface} -> {self.iw_monitor_topic}')
 
         self.declare_parameter('enable_wifi_scan', True)
         self.iw_control_enabled = self.get_parameter('enable_wifi_scan').get_parameter_value().bool_value
         self.declare_parameter('enable_wifi_roam', False)
         self.iw_roaming_enabled = self.get_parameter('enable_wifi_roam').get_parameter_value().bool_value
         if self.iw_enabled and self.iw_control_enabled:
-            print(f'Network control enabled'+(' with roaming' if self.iw_roaming_enabled else ''))
+            self.get_logger().info(f'Network control enabled'+(' with roaming' if self.iw_roaming_enabled else ''))
             
         self.declare_parameter('file_extraction_enabled', True)
         self.file_extraction_enabled = self.get_parameter('file_extraction_enabled').get_parameter_value().bool_value
@@ -639,13 +639,12 @@ async def main_async(args):
         loop_task = asyncio.get_event_loop().create_task(agent_node.agent_loop(), name="introspection_task")
         await asyncio.wait([ loop_task ], return_when=asyncio.ALL_COMPLETED)
     except (asyncio.CancelledError, KeyboardInterrupt):
-        print(c('Shutting down main_async', 'red'))
         pass
     except Exception as e:
-        print(c('Exception in main_async()', 'red'))
+        self.get_logger().error(f'Exception in main_async(): {e}')
         traceback.print_exc(e)
     
-    print(c('SHUTTING DOWN', 'cyan'))
+    self.get_logger().info('SHUTTING DOWN')
     
     agent_node.shutting_down = True
     
