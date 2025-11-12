@@ -91,8 +91,7 @@ class AgentController(Node):
                 self.iw_enabled = False
         
         self.docker_cmd_srv = self.create_service(DockerCmd, f'/{node_name}/docker_command', self.docker_command_srv_callback)
-        if self.iw_supports_scanning:
-            self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{node_name}/iw_scan', self.iw_scan_command_srv_callback)
+        self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{node_name}/iw_scan', self.iw_scan_command_srv_callback)
         if self.file_extraction_enabled:
             self.file_request_srv = self.create_service(FileRequest, f'/{node_name}/file_request', self.file_request_srv_callback)
 
@@ -554,7 +553,7 @@ class AgentController(Node):
                 if self.iw_enabled and (not self.iw_task or self.iw_task.done()):
                     self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_iw_info)
                 
-                await asyncio.sleep(self.get_parameter('refresh_period_sec').get_parameter_value().double_value)
+                await asyncio.sleep(self.refresh_period_sec)
             
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
@@ -569,26 +568,24 @@ class AgentController(Node):
         self.declare_parameter('log', False)
         self.log_output = self.get_parameter('log').get_parameter_value().bool_value
         
-        self.declare_parameter('refresh_period_sec', 0.5)
-        refresh_period_sec = self.get_parameter('refresh_period_sec').get_parameter_value().double_value
-        print(f'Refresh period is {refresh_period_sec:.1f}s')
+        self.declare_parameter('agent_update_period_sec', 0.5)
+        self.refresh_period_sec = self.get_parameter('agent_update_period_sec').get_parameter_value().double_value
+        print(f'Refresh period is {self.refresh_period_sec:.1f}s')
         
-        self.declare_parameter('docker', True)
-        self.docker_enabled = self.get_parameter('docker').get_parameter_value().bool_value
-        self.declare_parameter('docker_topic', '/docker_info')
-        self.docker_topic = self.get_parameter('docker_topic').get_parameter_value().string_value
+        self.declare_parameter('docker_monitor_topic', '/docker_info')
+        self.docker_topic = self.get_parameter('docker_monitor_topic').get_parameter_value().string_value
+        self.docker_enabled = self.docker_topic != ''
         if self.docker_enabled:
             print(f'Monitoring Docker -> {self.docker_topic}')
             
-        self.declare_parameter('docker_control', True)
-        self.docker_control_enabled = self.get_parameter('docker_control').get_parameter_value().bool_value
+        self.declare_parameter('enable_docker_control', True)
+        self.docker_control_enabled = self.get_parameter('enable_docker_control').get_parameter_value().bool_value
         if self.docker_control_enabled:
             print(f'Docker control enabled')
         
-        self.declare_parameter('system_info', True)
-        self.system_info_enabled = self.get_parameter('system_info').get_parameter_value().bool_value
         self.declare_parameter('system_info_topic', '/system_info')
         self.system_info_topic = self.get_parameter('system_info_topic').get_parameter_value().string_value
+        self.system_info_enabled = self.system_info_topic != ''
         if self.system_info_enabled:
             print(f'System monitoring CPU/MEM/SWP+disks -> {self.system_info_topic}')
       
@@ -597,18 +594,18 @@ class AgentController(Node):
         if self.system_info_enabled:
             print(f'Monitoring disk volumes: {str(self.disk_paths)}')
             
-        self.declare_parameter('iw_interface', 'wlan0')
-        self.iw_interface = self.get_parameter('iw_interface').get_parameter_value().string_value
-        self.declare_parameter('iw_monitor_topic', '/iw_status')
-        self.iw_monitor_topic = self.get_parameter('iw_monitor_topic').get_parameter_value().string_value
+        self.declare_parameter('wifi_interface', 'wlan0')
+        self.iw_interface = self.get_parameter('wifi_interface').get_parameter_value().string_value
+        self.declare_parameter('wifi_monitor_topic', '/iw_status')
+        self.iw_monitor_topic = self.get_parameter('wifi_monitor_topic').get_parameter_value().string_value
         self.iw_enabled = self.iw_interface and self.iw_monitor_topic
         if self.iw_enabled:
             print(f'Monitoring netwrork interface {self.iw_interface} -> {self.iw_monitor_topic}')
 
-        self.declare_parameter('iw_control', True)
-        self.iw_control_enabled = self.get_parameter('iw_control').get_parameter_value().bool_value
-        self.declare_parameter('iw_roaming', False)
-        self.iw_roaming_enabled = self.get_parameter('iw_roaming').get_parameter_value().bool_value
+        self.declare_parameter('enable_wifi_scan', True)
+        self.iw_control_enabled = self.get_parameter('enable_wifi_scan').get_parameter_value().bool_value
+        self.declare_parameter('enable_wifi_roam', False)
+        self.iw_roaming_enabled = self.get_parameter('enable_wifi_roam').get_parameter_value().bool_value
         if self.iw_enabled and self.iw_control_enabled:
             print(f'Network control enabled'+(' with roaming' if self.iw_roaming_enabled else ''))
             

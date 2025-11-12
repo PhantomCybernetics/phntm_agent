@@ -1,12 +1,13 @@
 # Phantom Bridge Agent
 
-This is a supporting package for the [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge).
+This is a supporting package for the [Phantom Brige Client](https://github.com/PhantomCybernetics/phntm_bridge_client).
 
 The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources. It also enables extraction of files from any running Docker container, identified either with absolute path or ROS2 package:// format.
 
-Typically, the Agent is installed with the Phantom Bridge and runs inside its Docker container. However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. 
+Typically, the Agent is installed with the Phantom Bridge Client and runs inside its Docker container, in which case it can also share one config file with the Client.
+However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. 
 
-## Install (Standalone)
+## Standalone Install
 
 ### Make sure your root SSL Certificates are up to date
 
@@ -32,22 +33,24 @@ ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build
 ```
 
 ### Configure the Agent
-Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/agent-config.html).
+Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/configuration.html#agent-configuration).
 ```yaml
 /**:
   ros__parameters:
-    host_name: 'pi5' # lower case, must be valid ros id or ''
-    refresh_period_sec: 0.5
-    docker: True # monitor containers
-    docker_topic: '/docker_info'
-    docker_control: True
-    system_info: True # monitor system stats
-    system_info_topic: '/system_info_pi5'
-    disk_volume_paths: [ '/', '/dev/shm' ] # volumes to monitor, must be accessible from the container
-    iw_interface: 'wlan0' # disabled if empty
-    iw_monitor_topic: '/iw_status' # writes output here
-    iw_control: True # enable wi-fi scanning
-    iw_roaming: False # enable wi-fi roaming
+
+    host_name: 'pi5' # lower case, must be a valid ROS id or ''
+    agent_update_period_sec: 0.5
+
+    docker_monitor_topic: '/docker_info' # '' to disable
+    enable_docker_control: True # allow start/stop/restart of a container
+
+    system_info_topic: '/system_info_pi5' # writes output here, '' to disable
+    disk_volume_paths: [ '/', '/dev/shm' ] # volumes to monitor, must be accessible from the container, [ '/' ] default
+
+    wifi_interface: 'wlan0' # wi-fi interface to monitor, disabled if ''
+    wifi_monitor_topic: '/iw_status' # writes output here
+    enable_wifi_scan: True # enable wi-fi scanning, must be also enabled in Bridge UI config
+    enable_wifi_roam: False # enable wi-fi roaming, must be also enabled in Bridge UI config
 ```
 
 ### Add the Agent service to your compose.yaml
