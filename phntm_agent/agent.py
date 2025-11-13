@@ -641,10 +641,10 @@ async def main_async(args):
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     except Exception as e:
-        self.get_logger().error(f'Exception in main_async(): {e}')
+        print(c(f'Exception in main_async(): {e}', 'red'))
         traceback.print_exc(e)
     
-    self.get_logger().info('SHUTTING DOWN')
+    print(c('SHUTTING DOWN', 'red'))
     
     agent_node.shutting_down = True
     
