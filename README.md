@@ -33,7 +33,7 @@ ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build
 ```
 
 ### Configure the Agent
-Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/configuration.html#agent-configuration).
+Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/configuration.html#agent-configuration).
 ```yaml
 /**:
   ros__parameters:
@@ -65,8 +65,11 @@ services:
     privileged: true # agent needs this
     network_mode: host # webrtc needs this
     ipc: host # agent needs this to see other local containers
+    # environment:
+    #  - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # recommended, see Bridge Client instructions
+    #  - ROS_DOMAIN_ID=22 # if used, specify ROS domain ID here
     volumes:
-      - ~/phntm_agent:/ros2_ws/src/phntm_agent # live repo mapped here for easy updates
+      # - ~/phntm_agent:/ros2_ws/src/phntm_agent # (optional) live repo mapped here for easy updates
       - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here
       - /var/run:/host_run # docker file extractor and wi-fi control need this
       - /tmp:/tmp # wi-fi control needs this
@@ -93,4 +96,4 @@ Should the Dockerfile change, you need to rebuild the Docker image too.
 
 ## See also
 - [Documentation](https://docs.phntm.io/bridge) Full Phantom Bridge documentation
-- [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge) Phantom Bridge repo and install instructions
+- [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge_client) Phantom Bridge Client repo and install instructions
