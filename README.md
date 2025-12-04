@@ -96,4 +96,4 @@ Should the Dockerfile change, you need to rebuild the Docker image too.
 
 ## See also
 - [Documentation](https://docs.phntm.io/bridge) Full Phantom Bridge documentation
-- [Phantom Brige](https://github.com/PhantomCybernetics/phntm_bridge_client) Phantom Bridge Client repo and install instructions
+- [Phantom Brige Client](https://github.com/PhantomCybernetics/phntm_bridge_client) Phantom Bridge Client repo and install instructions
