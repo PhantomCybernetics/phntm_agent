@@ -44,8 +44,8 @@ set -e \n \
 # setup ros environment \n \
 source "/opt/ros/'$ROS_DISTRO'/setup.bash" \n \
 export PYTHON_VERSION_VENV=$(python3 -c '"'"'import sys; print(".".join(map(str, sys.version_info[:2])))'"'"') \n \
-export PATH="/root/ros2_py_venv/bin:$PATH" \n \
-export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}" \n \
+export PATH="/ros2_ws/ros2_py_venv/bin:$PATH" \n \
+export PYTHONPATH="/ros2_ws/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}" \n \
 test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash" \n \
 \n \
 exec "$@" ' > /ros_entrypoint.sh
