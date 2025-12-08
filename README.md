@@ -33,7 +33,7 @@ ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build
 ```
 
 ### Configure the Agent
-Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/configuration.html#agent-configuration).
+Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/configuration#agent-configuration).
 ```yaml
 /**:
   ros__parameters:
