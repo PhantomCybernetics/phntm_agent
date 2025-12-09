@@ -27,7 +27,7 @@ try:
     # host_docker_socket = 'tcp://0.0.0.0:2375'
     docker_client = docker.DockerClient(base_url=host_docker_socket)
 except Exception as e:
-    print(c(f'Failed to init docker client with {host_docker_socket} {e}', 'red'))
+    print(f'Failed to init docker client with {host_docker_socket} {e}')
     pass
 
 import iwlib
@@ -491,7 +491,7 @@ class AgentController(Node):
                 self.iw_pub.publish(msg)
 
         except Exception as e:
-            print (c(f'Error while generating IWStatus: {e}', 'red'))
+            print (f'Error while generating IWStatus: {e}')
             print (f'IW CFG was: {cfg}')
             
     
@@ -641,10 +641,10 @@ async def main_async(args):
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     except Exception as e:
-        print(c(f'Exception in main_async(): {e}', 'red'))
+        print(f'Exception in main_async(): {e}')
         traceback.print_exc(e)
     
-    print(c('SHUTTING DOWN', 'red'))
+    print('SHUTTING DOWN')
     
     agent_node.shutting_down = True
     
