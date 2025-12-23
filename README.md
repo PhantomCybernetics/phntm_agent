@@ -7,6 +7,9 @@ The Agent monitors system resources (such as memory, disk usage and CPU load), W
 Typically, the Agent is installed with the Phantom Bridge Client and runs inside its Docker container, in which case it can also share one config file with the Client.
 However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. 
 
+## Architecture
+![Infrastructure map](https://raw.githubusercontent.com/PhantomCybernetics/phntm_bridge_docs/refs/heads/main/img/Architecture_Agent.svg)
+
 ## Standalone Install
 
 ### Make sure your root SSL Certificates are up to date
