@@ -90,11 +90,15 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
                 )
                 res = container.exec_run(cmd)
                 if res.exit_code == 1:
-                    logger.debug(f'Pkg not found in container {container.name}')
+                    logger.debug(f'Pkg {pkg} not found in container {container.name}')
                     continue
                 else:
-                    cont_pkg_prefix = res.output.decode("ASCII").rstrip() + '/share'
-                    logger.debug(f'Container {container.name} has pkg in {cont_pkg_prefix}')
+                    output = res.output.decode("ASCII").rstrip().splitlines()[-1] # ignore all output before the last line
+                    if not output:
+                        logger.debug(f'Pkg {pkg} found in container {container.name} but output missing')
+                        continue
+                    cont_pkg_prefix = output + '/share'
+                    logger.debug(f'Container {container.name} has pkg in "{cont_pkg_prefix}"')
             
             tar_chunks = None
             try:
