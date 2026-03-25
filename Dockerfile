@@ -32,7 +32,6 @@ RUN mkdir -p $ROS_WS/ros2_py_venv
 RUN python3 -m venv $ROS_WS/ros2_py_venv
 RUN . $ROS_WS/ros2_py_venv/bin/activate && \
     pip install iwlib && \
-    pip uninstall -y setuptools && \
     deactivate
 
 # wifi ctrl via shared /var/run/wpa_supplicant/ (also needs shared /tmp)
