@@ -16,9 +16,9 @@ import psutil
 import math
 import time
 import signal
-from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult, FileChunk
-from phntm_interfaces.srv import DockerCmd, IWScanCmd, FileRequest
-from .inc.lib import format_bytes, set_message_header, locate_file, produce_file_chunks
+from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult, FileExtractionRequest, FileExtractionResult, FileChunk
+from phntm_interfaces.srv import DockerCmd, IWScanCmd
+from .inc.lib import format_bytes, set_message_header, locate_file, produce_file_chunks, upload_file_chunk, upload_file_chunks, complete_file_upload
 
 import docker
 docker_client = None
@@ -34,6 +34,7 @@ import iwlib
 import iwlib.iwlist
 
 class AgentController(Node):
+
     ##
     # node constructor
     ##
@@ -41,24 +42,20 @@ class AgentController(Node):
         
         self.shutting_down:bool = False
         
-        node_name ='phntm_agent'
+        self.node_name ='phntm_agent'
         self.hostname = ''
         
         # load node name from config before we can set node name
-        config_path = os.path.join(
-            '/ros2_ws/',
-            'phntm_agent_params.yaml'
-            )
+        config_path = os.path.join('/ros2_ws/', 'phntm_agent_params.yaml')
         try:
             with open(config_path, 'r') as file:
                 config = yaml.safe_load(file)
                 self.hostname = config["/**"]["ros__parameters"].get('host_name', 'localhost')
-                node_name = f'{node_name}_{self.hostname}' if self.hostname else node_name
+                self.node_name = f'{self.node_name}_{self.hostname}' if self.hostname else self.node_name
         except FileNotFoundError:
             pass
         
-        super().__init__(node_name=f'{node_name}',
-                         use_global_arguments=True)
+        super().__init__(node_name=f'{self.node_name}', use_global_arguments=True)
         
         self.load_config()  # load the rest the ros way
        
@@ -75,7 +72,10 @@ class AgentController(Node):
         self.sysinfo_task = None
         self.iw_pub = None
         self.iw_task = None
+        self.file_request_sub = None
+        self.file_result_pub = None
         self.file_chunk_pub = None
+        self.file_chunk_sub = None
         
         self.iw_max_quality:float = False
         self.iw_supports_scanning:bool = False
@@ -90,10 +90,151 @@ class AgentController(Node):
                 self.l.error(f'Error initiating interface {self.iw_interface}; wi-fi control disabled')
                 self.iw_enabled = False
         
-        self.docker_cmd_srv = self.create_service(DockerCmd, f'/{node_name}/docker_command', self.docker_command_srv_callback)
-        self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{node_name}/iw_scan', self.iw_scan_command_srv_callback)
-        if self.file_extraction_enabled:
-            self.file_request_srv = self.create_service(FileRequest, f'/{node_name}/file_request', self.file_request_srv_callback)
+        self.docker_cmd_srv = self.create_service(DockerCmd, f'/{self.node_name}/docker_command', self.docker_command_srv_callback)
+        self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{self.node_name}/iw_scan', self.iw_scan_command_srv_callback)
+        # if self.file_extraction_enabled:
+            # self.file_request_srv = self.create_service(FileRequest, f'/{self.node_name}/file_request', self.file_request_srv_callback)
+            
+        if self.docker_enabled:
+            qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+            self.docker_pub = self.create_publisher(DockerStatus, self.docker_topic, qos)
+            if self.docker_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerStatus')
+                self.docker_enabled = False
+        
+        if self.system_info_enabled:
+            qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+            self.sysinfo_pub = self.create_publisher(SystemInfo, self.system_info_topic, qos)
+            if self.sysinfo_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.system_info_topic}, msg_type=SystemInfo')
+                self.system_info_enabled = False
+                
+        if self.iw_interface and self.iw_monitor_topic:
+            qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+            self.iw_pub = self.create_publisher(IWStatus, self.iw_monitor_topic, qos)
+            if self.iw_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.iw_monitor_topic}, msg_type=IWStatus')
+                self.iw_enabled = False
+        
+        file_extraction_signalling_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_ALL, reliability=QoSReliabilityPolicy.RELIABLE)
+        self.file_request_sub = self.create_subscription(FileExtractionRequest, self.file_extraction_request_topic, self.file_request_received_callback, file_extraction_signalling_qos)
+        self.file_result_pub = self.create_publisher(FileExtractionResult, self.file_extraction_result_topic, file_extraction_signalling_qos)
+        
+        file_chunks_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_ALL, reliability=QoSReliabilityPolicy.RELIABLE)
+        if not self.bridge_server_address: # published chunks
+            self.file_chunk_pub = self.create_publisher(FileChunk, self.file_extraction_chunks_topic, file_chunks_qos)
+        else: # reads and uploads chunks from other agents
+            self.file_chunk_sub = self.create_subscription(FileChunk, self.file_extraction_chunks_topic, self.file_chunk_received_callback, file_chunks_qos)
+            self.file_chunks_receiving:dict[string, dict[int, bool]] = {}
+
+
+    def file_request_received_callback(self, msg:FileExtractionRequest):
+        
+        search_path = msg.path
+        
+        res = FileExtractionResult()
+        res.agent = self.node_name
+        res.path = search_path
+        
+        if not self.file_extraction_enabled:
+            res.result = FileExtractionResult.RESULT_EXTRACTION_DISABLED
+            self.file_result_pub.publish(res)
+            return
+        
+        self.l.info(f'File request received: {search_path}')
+        
+        # try to find the file
+        file_bytes = locate_file(search_path, os.environ["ROS_DISTRO"], docker_client, self.l)
+        
+        if not file_bytes: # not found
+            self.l.info(f'File {search_path} not found by {self.node_name}')
+            res.result = FileExtractionResult.RESULT_NOT_FOUND
+            self.file_result_pub.publish(res)
+            return
+
+        self.l.info(f'File {search_path} found by {self.node_name}')
+
+        chunk_size = 500*1024 # ~0.5M is the default limit for topic message sizes without any extra config
+        byte_size = len(file_bytes)
+        num_parts = math.ceil(byte_size / chunk_size)
+
+        if self.file_uploader_url_base: # upload it
+            
+            self.l.info(f'Uploading to {self.file_uploader_url_base}...')
+            json_data = {
+                "idRobot": self.id_robot,
+                "key": self.key,
+                "path": search_path,
+                "parts": num_parts,
+                "totalBytes": byte_size
+            }
+            if not upload_file_chunks(self.file_uploader_url_base, json_data, file_bytes, byte_size, chunk_size, self.l):
+                res.result = FileExtractionResult.RESULT_ERROR
+                self.file_result_pub.publish(res)
+                return
+            cached_file_name = complete_file_upload(self.file_uploader_url_base, json_data, self.l)
+            if not cached_file_name:
+                res.result = FileExtractionResult.RESULT_ERROR
+                self.file_result_pub.publish(res)
+                return
+            res.result = FileExtractionResult.RESULT_UPLOADED
+            res.cached_file_name = cached_file_name
+        
+        else: # can't upload from here, produce chunks into a topic and let other agent upload it
+            
+            self.l.info(f'Can\'t upload, producing {num_parts} file chunks...')
+            res.result = FileExtractionResult.RESULT_FOUND_SENDING_CHUNKS
+            produce_file_chunks(search_path, self.node_name, file_bytes, byte_size, chunk_size, num_parts, self.file_chunk_pub, self, self.l)
+
+        self.file_result_pub.publish(res)
+
+
+    def file_chunk_received_callback(self, msg:FileChunk):
+        self.l.debug(f'File chunk {msg.chunk_number+1}/{msg.total_chunks} of \'{msg.path}\' received from {msg.agent}')
+        if msg.path not in self.file_chunks_receiving:
+            self.file_chunks_receiving[msg.path] = {}
+            for i in range(msg.total_chunks):
+                self.file_chunks_receiving[msg.path][i] = False
+            
+        json_data = {
+            "idRobot": self.id_robot,
+            "key": self.key,
+            "path": msg.path,
+            "parts": msg.total_chunks,
+            "totalBytes": msg.total_bytes
+        }
+        
+        if not upload_file_chunk(self.file_uploader_url_base, json_data, msg.chunk_number, msg.data, self.l):
+            res = FileExtractionResult()
+            res.agent = self.node_name
+            res.path = msg.path
+            res.result = FileExtractionResult.RESULT_ERROR
+            self.file_result_pub.publish(res)
+            return
+        
+        self.file_chunks_receiving[msg.path][msg.chunk_number] = True
+        
+        all_done = True
+        for i in range(msg.total_chunks):
+            if not self.file_chunks_receiving[msg.path][i]:
+                all_done = False
+                break
+        
+        if all_done:
+            self.l.info(f'All {msg.total_chunks} chunks done for \'{msg.path}\'')
+            del self.file_chunks_receiving[msg.path]
+            
+            cached_file_name = complete_file_upload(self.file_uploader_url_base, json_data, self.l)
+            res = FileExtractionResult()
+            res.agent = self.node_name
+            res.path = msg.path
+            if not cached_file_name:
+                res.result = FileExtractionResult.RESULT_ERROR
+                self.file_result_pub.publish(res)
+                return
+            res.result = FileExtractionResult.RESULT_UPLOADED
+            res.cached_file_name = cached_file_name
+            self.file_result_pub.publish(res)
 
 
     def docker_command_srv_callback(self, request:DockerCmd.Request, response:DockerCmd.Response):
@@ -247,36 +388,6 @@ class AgentController(Node):
         return response
 
 
-    def file_request_srv_callback(self, request:FileRequest.Request, response:FileRequest.Response):
-        
-        self.get_logger().info(f'File request received: {request.path}')
-        
-        time_start = time.time()
-        file_bytes = locate_file(request.path, os.environ["ROS_DISTRO"], docker_client, self.get_logger())
-        
-        if not file_bytes:
-            self.get_logger().info(f'File {request.path} not found ({time.time()-time_start:.2f}s)')
-            response.success = False
-            response.msg = "File not found"
-            return response    
-        
-        self.get_logger().info(f'File {request.path} found ({time.time()-time_start:.2f}s)')
-        
-        chunk_size = 500*1024 # ~0.5M is the default limit for message sizes without any extra config
-        byte_size = len(file_bytes)
-        num_parts = math.ceil(byte_size / chunk_size)
-    
-        response.success = True
-        response.msg = request.path
-        response.num_parts = num_parts
-        response.total_bytes = byte_size
-        
-        # produce chunks after the return value
-        asyncio.create_task(produce_file_chunks(request.path, file_bytes, byte_size, chunk_size, num_parts, self.file_chunk_pub, self, self.get_logger()))  # Requires an event loop
-
-        return response
-    
-    
     def calculate_docker_stats(self, stats):
 
         # mem_bytes_used = stats["memory_stats"]["usage"]
@@ -318,7 +429,7 @@ class AgentController(Node):
                     res['block_io_write'] = blkio_stats['value']
         return res
 
-    
+
     def get_docker_containers(self):
         
         if not self.docker_pub or not self.context.ok():
@@ -388,8 +499,8 @@ class AgentController(Node):
             self.docker_pub.publish(msg)
         elif self.shutting_down:
           print('Error pushing docker state after shutdown')  
-    
-    
+
+
     def get_system_info(self):
         cpu_count = psutil.cpu_count()
         cpu_times = psutil.cpu_times_percent(interval=1, percpu=True)
@@ -493,56 +604,14 @@ class AgentController(Node):
         except Exception as e:
             print (f'Error while generating IWStatus: {e}')
             print (f'IW CFG was: {cfg}')
-            
-    
+
+
     async def agent_loop(self):
 
         try:
-            c = 0 # pass counter        
-            self.docker_stats_streams = {}
-            
-            if self.docker_enabled:
-                qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST,
-                                depth=1,
-                                reliability=QoSReliabilityPolicy.BEST_EFFORT
-                                )
-                self.docker_pub = self.create_publisher(DockerStatus, self.docker_topic, qos)
-                if self.docker_pub == None:
-                    self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerStatus')
-                    self.docker_enabled = False
-            
-            if self.system_info_enabled:
-                qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST,
-                                depth=1,
-                                reliability=QoSReliabilityPolicy.BEST_EFFORT
-                                )
-                self.sysinfo_pub = self.create_publisher(SystemInfo, self.system_info_topic, qos)
-                if self.sysinfo_pub == None:
-                    self.get_logger().error(f'Failed creating publisher for topic {self.system_info_topic}, msg_type=SystemInfo')
-                    self.system_info_enabled = False
-                    
-            if self.iw_interface and self.iw_monitor_topic:
-                qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST,
-                                depth=1,
-                                reliability=QoSReliabilityPolicy.BEST_EFFORT
-                                )
-                self.iw_pub = self.create_publisher(IWStatus, self.iw_monitor_topic, qos)
-                if self.iw_pub == None:
-                    self.get_logger().error(f'Failed creating publisher for topic {self.iw_monitor_topic}, msg_type=IWStatus')
-                    self.iw_enabled = False
-                    
-            if (self.file_extraction_enabled):
-                qos = QoSProfile(history=QoSHistoryPolicy.KEEP_ALL,
-                                reliability=QoSReliabilityPolicy.RELIABLE
-                                )
-                self.file_chunk_pub = self.create_publisher(FileChunk, self.file_chunks_topic, qos)
-            
             while not self.shutting_down:
                 
                 rclpy.spin_once(self, timeout_sec=0.1)
-                
-                # print_line(self, f'Agent Pass ({str(c)})...')
-                c += 1 # counter
 
                 if self.docker_enabled and (not self.docker_task or self.docker_task.done()):
                     self.docker_task = asyncio.get_event_loop().run_in_executor(None, self.get_docker_containers)
@@ -561,8 +630,8 @@ class AgentController(Node):
             self.get_logger().error(f'Exception in agent_loop: {e}')
         
         self.get_logger().debug(f'Loop stopped')
-        
-    
+
+
     def load_config(self):
         
         self.declare_parameter('log', False)
@@ -594,7 +663,7 @@ class AgentController(Node):
         if self.system_info_enabled:
             self.get_logger().info(f'Monitoring disk volumes: {str(self.disk_paths)}')
             
-        self.declare_parameter('wifi_interface', 'wlan0')
+        self.declare_parameter('wifi_interface', '')
         self.iw_interface = self.get_parameter('wifi_interface').get_parameter_value().string_value
         self.declare_parameter('wifi_monitor_topic', '/iw_status')
         self.iw_monitor_topic = self.get_parameter('wifi_monitor_topic').get_parameter_value().string_value
@@ -611,9 +680,34 @@ class AgentController(Node):
             
         self.declare_parameter('file_extraction_enabled', True)
         self.file_extraction_enabled = self.get_parameter('file_extraction_enabled').get_parameter_value().bool_value
-        self.declare_parameter('file_chunks_topic', '/file_chunks')
-        self.file_chunks_topic = self.get_parameter('file_chunks_topic').get_parameter_value().string_value
-    
+        if self.file_extraction_enabled:
+            self.get_logger().info(f'File extraction enabled')
+        else:
+            self.get_logger().info(f'File extraction disabled')
+        
+        self.declare_parameter('id_robot', '')
+        self.id_robot = self.get_parameter('id_robot').get_parameter_value().string_value
+        self.declare_parameter('key', '')
+        self.key = self.get_parameter('key').get_parameter_value().string_value
+        self.declare_parameter('bridge_server_address', '')
+        self.bridge_server_address = self.get_parameter('bridge_server_address').get_parameter_value().string_value
+        self.declare_parameter('file_uploader_port', 1336)
+        self.file_uploader_port = self.get_parameter('file_uploader_port').get_parameter_value().integer_value
+        self.file_uploader_url_base = None
+        if self.id_robot and self.key and self.bridge_server_address:
+            self.file_uploader_url_base = f'{self.bridge_server_address}:{self.file_uploader_port}'
+            self.get_logger().info(f'File upload enabled ({self.file_uploader_url_base})')
+        else:
+            self.get_logger().info(f'File upload disabled')
+         
+        self.declare_parameter('file_extraction_request_topic', '/file_extraction_requests')
+        self.file_extraction_request_topic = self.get_parameter('file_extraction_request_topic').get_parameter_value().string_value
+        self.declare_parameter('file_extraction_result_topic', '/file_extraction_results')
+        self.file_extraction_result_topic = self.get_parameter('file_extraction_result_topic').get_parameter_value().string_value
+        self.declare_parameter('file_extraction_chunks_topic', '/file_extractor_chunks')
+        self.file_extraction_chunks_topic = self.get_parameter('file_extraction_chunks_topic').get_parameter_value().string_value
+        
+
     async def shutdown_cleanup(self):
         
         if self.docker_pub:
@@ -632,11 +726,10 @@ class AgentController(Node):
             self.iw_pub = None
 
 
-# agent_node = None
 async def main_async(args):
     try:
         agent_node = AgentController()
-        loop_task = asyncio.get_event_loop().create_task(agent_node.agent_loop(), name="introspection_task")
+        loop_task = asyncio.get_event_loop().create_task(agent_node.agent_loop())
         await asyncio.wait([ loop_task ], return_when=asyncio.ALL_COMPLETED)
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass

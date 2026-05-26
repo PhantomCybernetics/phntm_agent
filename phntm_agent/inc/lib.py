@@ -11,6 +11,9 @@ import time
 import math
 import docker
 import tarfile, io
+import json
+import requests
+
 
 def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient, logger:RcutilsLogger):
     
@@ -132,34 +135,116 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
     return None # file not found
 
 
-async def produce_file_chunks(file_path:str, file_bytes:bytes, byte_size:int, chunk_size:int, num_parts:int, pub:Publisher, node:Node, logger:RcutilsLogger):
+def produce_file_chunks(path:str, node_name:str, file_bytes:bytes, byte_size:int, chunk_size:int, num_parts:int, pub:Publisher, node:Node, logger:RcutilsLogger):
     
-    # make sure reply gets produced before we start with chunks
-    rclpy.spin_once(node, timeout_sec=0.01) 
-
-    await asyncio.sleep(0.01) # wait a bit to make sure the sending starts after the service reply
-
-    logger.info(f' Producing {format_bytes(byte_size)} as {num_parts} chunks')
+    logger.info(f'Producing {format_bytes(byte_size)} as {num_parts} chunks')
     
     offset = 0
     for index in range(num_parts):
         
         msg = FileChunk()
-        msg.file_path = file_path
+        msg.path = path
+        msg.agent = node_name
         msg.chunk_number = index
         msg.total_chunks = num_parts
+        msg.total_bytes = byte_size
         msg.data = file_bytes[offset : offset+chunk_size]
     
         offset += chunk_size
         
         if node.context.ok():
             pub.publish(msg)
-            rclpy.spin_once(node, timeout_sec=0.01)
             logger.debug(f"Produced chunk {index + 1}/{num_parts}")
         else:
-            logger.error(f"Failed producing chunk {index + 1}/{num_parts}")
-            
-            
+            logger.error(f"Failed to produce chunk {index + 1}/{num_parts}")
+
+
+def upload_file_chunk(file_uploader_url_base:str, json_data, index:int, chunk_bytes:bytes, logger:RcutilsLogger):
+    
+    url = file_uploader_url_base + '/upload'
+    
+    parts = {
+        "file": ( # binary file part
+            f"{json_data['path']}.part{index}", # filename
+            chunk_bytes,
+            None, # content-type guessed
+        ),
+        "json": (
+            None, # no filename
+            json.dumps(json_data),
+            "application/json",
+        )
+    }
+    try:
+        response = requests.post(url, files=parts, timeout=30.0) # timeout in sec
+        if response.status_code == 200:
+            logger.info(f"Uploaded {json_data['path']}, chunk {index+1}/{json_data['parts']}")
+        else:
+            logger.error(f"Server returned error for {json_data['path']}, chunk {index+1}/{json_data['parts']}, code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error while uploading {json_data['path']}, chunk {index+1}/{json_data['parts']}: {str(e)}")
+        return False
+    
+    return True # all good
+    
+    
+def upload_file_chunks(file_uploader_url_base:str, json_data, file_bytes:bytes, byte_size:int, chunk_size:int, logger:RcutilsLogger):
+    
+    url = file_uploader_url_base + '/upload'
+    logger.info(f"Uploading {format_bytes(byte_size)} of '{json_data['path']}' as {json_data['parts']} chunks to {url}")
+    
+    offset = 0
+    for index in range(json_data['parts']):
+        parts = {
+            "file": ( # binary file part
+                f"{json_data['path']}.part{index}", # filename
+                file_bytes[offset : offset+chunk_size], # bytes
+                None, # content-type guessed
+            ),
+            "json": (
+                None, # no filename
+                json.dumps(json_data),
+                "application/json",
+            )
+        }
+        try:
+            response = requests.post(url, files=parts, timeout=30.0) # timeout in sec
+            if response.status_code == 200:
+                logger.info(f"Uploaded {json_data['path']}, chunk {index+1}/{json_data['parts']}")
+            else:
+                logger.error(f"Server returned error for {json_data['path']}, chunk {index+1}/{json_data['parts']}, code: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Error while uploading {json_data['path']}, chunk {index+1}/{json_data['parts']}: {str(e)}")
+            return False
+        offset += chunk_size
+          
+    return True # all good
+
+
+def complete_file_upload(file_uploader_url_base:str, json_data, logger:RcutilsLogger):
+    
+    url = file_uploader_url_base + '/complete'
+    logger.info(f"Completing {json_data['path']} upload ({json_data['parts']} {'chunk' if json_data['parts'] == 1 else 'chunks'})")
+    try:
+        response = requests.post(url, json=json_data, timeout=30.0) # timeout in sec
+        if response.status_code == 200:
+            response_data = response.json()
+            if 'cachedfileName' in response_data and response_data['cachedfileName']:
+                logger.info(f"Completed {json_data['path']}, cached file name: {response_data['cachedfileName']}")
+                return response_data['cachedfileName']
+            else:
+                logger.error(f"Completed {json_data['path']} with error, server did't return cached file name")
+                return False
+        else:
+            logger.error(f"Server returned error for completion of {json_data['path']}, code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error while completing {json_data['path']}: {str(e)}")
+        return False
+
+
 def set_message_header(node, msg):
     time_nanosec:int = time.time_ns()
     msg.header.stamp.sec = math.floor(time_nanosec / 1000000000)
@@ -167,10 +252,10 @@ def set_message_header(node, msg):
     msg.header.frame_id = node.hostname
 
 
-def format_bytes(b, mib=False):        
-    unit = 1000
-    GB = unit * unit * unit # 
-    MB = unit * unit # docker stats shows MiB, keep consistent
+def format_bytes(b, mib=False): # docker stats shows MB not MiB, keep consistent
+    unit = 1024 if mib else 1000
+    GB = unit * unit * unit
+    MB = unit * unit 
     KB = unit
     
     if b > GB:

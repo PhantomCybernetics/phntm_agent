@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>phntm_agent</name>
-  <version>0.0.2</version>
+  <version>0.0.3</version>
   <description>Monitoring Agent for the Phantom Bridge</description>
   <maintainer email="mirek@phntm.io">Mirek Burkon</maintainer>
   <license>MIT</license>
