@@ -2,10 +2,12 @@
 
 This is a supporting package for the [Phantom Brige Client](https://github.com/PhantomCybernetics/phntm_bridge_client).
 
-The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources. It also enables extraction of files from any running Docker container, identified either with absolute path or ROS2 package:// format.
+The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources.
+
+It also enables extraction of files from any running Docker container, identified either with absolute path, file:// or ROS2 package:// format. Upon receiving file request from the Client node, Agent queries all observed running Docker containers. If the requested file is found, it either uploads it to the Bridge Server directly, or splits it into chunks to be uploaded by another Agent instace.
 
 Typically, the Agent is installed with the Phantom Bridge Client and runs inside its Docker container, in which case it can also share one config file with the Client.
-However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. 
+However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. In this case, only one Agent node needs to have internet access for file extraction to work.
 
 ## Architecture
 ![Infrastructure map](https://raw.githubusercontent.com/PhantomCybernetics/phntm_bridge_docs/refs/heads/main/img/Architecture_Agent.svg)
@@ -93,9 +95,10 @@ Unless the Dockerfile changes between versions (which doesn't happen very often)
 cd ~/phntm_agent
 git pull
 docker restart phntm-agent
+# no rebuild is requred as the Agent is written in Python
 ```
 
-Should the Dockerfile change, you need to rebuild the Docker image too.
+Should the Dockerfile change, you need to rebuild the Docker Image too.
 
 ## See also
 - [Documentation](https://docs.phntm.io/bridge) Full Phantom Bridge documentation
