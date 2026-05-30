@@ -24,15 +24,17 @@ RUN mkdir -p $ROS_WS/src
 RUN apt-get install -y python3-docker
 
 # wifi scanning
-RUN apt-get install -y iw wireless-tools libiw-dev
+RUN apt-get install -y iw 
+# RUN apt-get install -y wireless-tools # deprecated
+RUN apt-get install -y libiw-dev
+
 
 # create a venv, install pip-only deps
 RUN apt-get install -y python3-venv
-RUN mkdir -p $ROS_WS/ros2_py_venv
-RUN python3 -m venv $ROS_WS/ros2_py_venv
-RUN . $ROS_WS/ros2_py_venv/bin/activate && \
+RUN mkdir -p /root/ros2_py_venv
+RUN python3 -m venv /root/ros2_py_venv
+RUN . /root/ros2_py_venv/bin/activate && \
     pip install iwlib && \
-    pip uninstall setuptools && \
     deactivate
 
 # wifi ctrl via shared /var/run/wpa_supplicant/ (also needs shared /tmp)
@@ -45,8 +47,8 @@ set -e \n \
 # setup ros environment \n \
 source "/opt/ros/'$ROS_DISTRO'/setup.bash" \n \
 export PYTHON_VERSION_VENV=$(python3 -c '"'"'import sys; print(".".join(map(str, sys.version_info[:2])))'"'"') \n \
-export PATH="/ros2_ws/ros2_py_venv/bin:$PATH" \n \
-export PYTHONPATH="/ros2_ws/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}" \n \
+export PATH="/root/ros2_py_venv/bin:$PATH" \n \
+export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}" \n \
 test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash" \n \
 \n \
 exec "$@" ' > /ros_entrypoint.sh
@@ -58,8 +60,8 @@ RUN echo 'test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setu
 # activate python venv on ~/.bashrc source
 # this must be both here (for the dev mode launch) and in the entrypoint (compose command launch)
 RUN echo 'export PYTHON_VERSION_VENV=$(python3 -c '"'"'import sys; print(".".join(map(str, sys.version_info[:2])))'"'"')' >> /root/.bashrc
-RUN echo 'export PATH="/ros2_ws/ros2_py_venv/bin:$PATH"' >> /root/.bashrc
-RUN echo 'export PYTHONPATH="/ros2_ws/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}"' >> /root/.bashrc
+RUN echo 'export PATH="/root/ros2_py_venv/bin:$PATH"' >> /root/.bashrc
+RUN echo 'export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}"' >> /root/.bashrc
 
 WORKDIR $ROS_WS
 
@@ -72,10 +74,12 @@ RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
 
 # install phntm agent
 COPY ./ $ROS_WS/src/phntm_agent
-RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
+RUN . /root/ros2_py_venv/bin/activate && \
+    . /opt/ros/$ROS_DISTRO/setup.sh && \
     . /ros2_ws/install/setup.sh && \
     rosdep install -i --from-path src/phntm_agent --rosdistro $ROS_DISTRO -y && \
-    colcon build --symlink-install --packages-select phntm_agent
+    colcon build --symlink-install --packages-select phntm_agent && \
+    deactivate
 
 # pimp up prompt with hostame and color
 RUN echo "PS1='\${debian_chroot:+(\$debian_chroot)}\\[\\033[01;35m\\]\\u@\\h\\[\\033[00m\\] \\[\\033[01;34m\\]\\w\\[\\033[00m\\] '"  >> /root/.bashrc

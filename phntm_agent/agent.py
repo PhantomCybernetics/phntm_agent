@@ -66,6 +66,9 @@ class AgentController(Node):
         if not self.log_output:
             self.l.info(f'Verbose logging disabled by config')
         
+        if not docker_client:
+            self.l.error(f'Docker client not available, did you mount \'{host_docker_socket}\'?')
+        
         self.docker_pub = None
         self.docker_task = None
         self.sysinfo_pub = None
@@ -435,6 +438,9 @@ class AgentController(Node):
         if not self.docker_pub or not self.context.ok():
             if self.shutting_down:
                 print('Ignoring pushing docker state after shutdown')  
+            return
+        
+        if not docker_client:
             return
         
         docker_containers = docker_client.containers.list(all=True)
