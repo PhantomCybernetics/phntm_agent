@@ -32,14 +32,6 @@ sudo usermod -aG docker ${USER}
 # log out & back in
 ```
 
-### Clone this repo and build the Docker image
-```bash
-cd ~
-git clone git@github.com:PhantomCybernetics/phntm_agent.git phntm_agent
-cd phntm_agent
-ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build-arg ROS_DISTRO=$ROS_DISTRO .
-```
-
 ### Configure the Agent
 Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of configuration options can be found [here](https://docs.phntm.io/bridge/basics/configuration#agent-configuration).
 ```yaml
@@ -62,11 +54,21 @@ Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of confi
 ```
 
 ### Add the Agent service to your compose.yaml
-Add phntm_agent service to your `~/compose.yaml` file with `~/phntm_agent.yaml` mounted in the container as shown below:
+Add phntm_agent service to your `~/compose.yaml` file with `~/phntm_agent.yaml` mounted in the container as shown below.
+See available pre-built Docker images [here](https://ghcr.io/phantomcybernetics/phntm_bridge_agent).
 ```yaml
 services:
   phntm_agent:
-    image: phntm/agent:humble
+
+    # select a pre-built image according to your ROS distro
+    image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-humble
+    # image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-iron
+    # image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-jazzy
+    # image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-kilted
+    # image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-lyrical
+    # image: ghcr.io/phantomcybernetics/phntm_bridge_agent:main-rolling
+    # or image: phntm/agent:humble if built from source (see below)
+
     container_name: phntm-agent
     hostname: phntm-agent.local
     restart: unless-stopped # restarts after first run
@@ -90,18 +92,35 @@ services:
 docker compose up phntm_agent
 ```
 
-## Upgrading
-
-Unless the Dockerfile changes between versions (which doesn't happen very often), all you need to do to upgrade the Phantom Agent is to pull updates from this repo and then restart the Docker container.
-
+## (Optional) Clone this repo and build the Docker image from source
 ```bash
-cd ~/phntm_agent
-git pull
-docker restart phntm-agent
-# no rebuild is requred as the Agent is written in Python
+cd ~
+git clone git@github.com:PhantomCybernetics/phntm_agent.git phntm_agent
+cd phntm_agent
+ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build-arg ROS_DISTRO=$ROS_DISTRO .
+# then use "image: phntm/agent:$ROS_DISTRO" in your ~/compose.yaml
 ```
 
-Should the Dockerfile change, you need to rebuild the Docker Image too.
+## Upgrading
+You may want to check out and/or follow our [Bluesky account](https://bsky.app/profile/phntm.io) for updates and service announcements. Significant milestones and interesting new features will be also e-mailed to the maintainer's e-mail address.
+
+```bash
+# Stop and remove the current Docker Container
+docker stop phntm-agent && docker rm phntm-agent
+
+# If using pre-built Docker Images, run:
+docker image rm ghcr.io/phantomcybernetics/phntm_bridge_agent:main-humble
+docker compose pull phntm_agent
+
+# If building from source:
+docker image rm phntm/agent:humble
+cd ~/phntm_agent
+git pull
+ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/agent:$ROS_DISTRO --build-arg ROS_DISTRO=$ROS_DISTRO .
+
+# All done, relaunch
+docker compose up phntm_agent
+```
 
 ## See also
 - [Documentation](https://docs.phntm.io/bridge) Full Phantom Bridge documentation
