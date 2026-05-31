@@ -2,26 +2,15 @@
 
 This is a supporting package for the [Phantom Brige Client](https://github.com/PhantomCybernetics/phntm_bridge_client).
 
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-amd64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-amd64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-amd64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-amd64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-amd64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-amd64.json)
-
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-arm64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-arm64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-arm64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-arm64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-arm64.json)
-![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-arm64.json)
-
 The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources.
 
 It also enables extraction of files from any running Docker container, identified either with absolute path, file:// or ROS2 package:// format. Upon receiving file request from the Client node, Agent queries all observed running Docker containers. If the requested file is found, it either uploads it to the Bridge Server directly, or splits it into chunks to be uploaded by another Agent instace.
 
 Typically, the Agent is installed with the Phantom Bridge Client and runs inside its Docker container, in which case it can also share one config file with the Client.
 However, it can be also installed in a standalone mode, which is useful for monitoring and control of distributed ROS2 systems. In this case, only one Agent node needs to have internet access for file extraction to work.
+
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-amd64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-amd64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-amd64.json)  ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-amd64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-amd64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-amd64.json) \
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-arm64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-arm64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-arm64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-arm64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-arm64.json) ![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-arm64.json)
 
 ## Architecture
 ![Infrastructure map](https://raw.githubusercontent.com/PhantomCybernetics/phntm_bridge_docs/refs/heads/main/img/Architecture_Agent.svg)
