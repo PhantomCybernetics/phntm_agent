@@ -227,6 +227,7 @@ jobs:
     - name: Download all badge artifacts
       uses: actions/download-artifact@v4
       with:
+        pattern: badge-*
         path: ./
 
     - name: Move JSON files to build-badges root
