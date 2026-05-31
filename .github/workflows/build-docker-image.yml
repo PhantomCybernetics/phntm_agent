@@ -227,20 +227,20 @@ jobs:
     - name: Download all badge artifacts
       uses: actions/download-artifact@v4
       with:
-        path: ./badges
+        path: ./
 
     - name: Move JSON files to build-badges root
       run: |
-        mkdir -p ./build-badges/badges
-        find ./badges -name "*.json" -exec cp {} ./build-badges/badges/ \;
-        ls -la ./build-badges/badges/
+        mkdir -p ./build-badges
+        find ./ -name "*.json" -exec cp {} ./build-badges/ \;
+        ls -la ./build-badges/
 
     - name: Commit and push badges
       run: |
         cd build-badges
         git config user.name github-actions
         git config user.email github-actions@github.com
-        git add badges/
+        git add ./
         git diff --quiet && git diff --staged --quiet || git commit -m "Update build badges [skip ci]"
         git push origin build-badges
     # ----------------------------------------------
