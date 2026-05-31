@@ -2,6 +2,20 @@
 
 This is a supporting package for the [Phantom Brige Client](https://github.com/PhantomCybernetics/phntm_bridge_client).
 
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-amd64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-amd64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-amd64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-amd64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-amd64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-amd64.json)
+
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fhumble-arm64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Firon-arm64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fjazzy-arm64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Fkilted-arm64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Flyrical-arm64.json)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fphantomcybernetics.github.io%2Fphntm_agent%2Frolling-arm64.json)
+
 The Agent monitors system resources (such as memory, disk usage and CPU load), Wi-Fi connection quality (allowing to scan and roam between APs), allows to control configured Docker containers and to monitor their used resources.
 
 It also enables extraction of files from any running Docker container, identified either with absolute path, file:// or ROS2 package:// format. Upon receiving file request from the Client node, Agent queries all observed running Docker containers. If the requested file is found, it either uploads it to the Bridge Server directly, or splits it into chunks to be uploaded by another Agent instace.

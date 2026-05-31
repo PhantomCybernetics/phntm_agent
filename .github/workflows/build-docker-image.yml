@@ -128,10 +128,10 @@ jobs:
       if: always()   # runs even if build fails
       run: |
         if [ "${{ job.status }}" == "success" ]; then
-          echo '{"schemaVersion":1,"label":"${{ matrix.ros_distro }} / ${{ matrix.arch }}","message":"passing","color":"green"}' \
+          echo '{"schemaVersion":1,"label":"${{ matrix.ros_distro }}","message":"${{ matrix.arch }}","color":"green"}' \
             > ${{ matrix.ros_distro }}-${{ matrix.arch }}.json
         else
-          echo '{"schemaVersion":1,"label":"${{ matrix.ros_distro }} / ${{ matrix.arch }}","message":"failing","color":"red"}' \
+          echo '{"schemaVersion":1,"label":"${{ matrix.ros_distro }}","message":"${{ matrix.arch }}","color":"red"}' \
             > ${{ matrix.ros_distro }}-${{ matrix.arch }}.json
         fi
 
