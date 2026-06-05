@@ -675,7 +675,7 @@ class AgentController(Node):
         self.iw_monitor_topic = self.get_parameter('wifi_monitor_topic').get_parameter_value().string_value
         self.iw_enabled = self.iw_interface and self.iw_monitor_topic
         if self.iw_enabled:
-            self.get_logger().info(f'Monitoring netwrork interface {self.iw_interface} -> {self.iw_monitor_topic}')
+            self.get_logger().info(f'Monitoring network interface {self.iw_interface} -> {self.iw_monitor_topic}')
 
         self.declare_parameter('enable_wifi_scan', True)
         self.iw_control_enabled = self.get_parameter('enable_wifi_scan').get_parameter_value().bool_value
