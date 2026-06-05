@@ -346,8 +346,8 @@ class AgentController(Node):
             if l.lower().startswith('freq'):
                 parts = l.split(':')
                 if len(parts) > 0:
-                    int_freq = int(parts[1].strip())
-                    curr_res.frequency = int_freq / 1000.0
+                    float_freq = float(parts[1].strip())
+                    curr_res.frequency = float_freq / 1000.0
                 continue
             
             if l.lower().startswith('ssid'):
