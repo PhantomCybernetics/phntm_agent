@@ -19,6 +19,7 @@ import signal
 from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult, FileExtractionRequest, FileExtractionResult, FileChunk
 from phntm_interfaces.srv import DockerCmd, IWScanCmd
 from .inc.lib import format_bytes, set_message_header, locate_file, produce_file_chunks, upload_file_chunk, upload_file_chunks, complete_file_upload
+from std_msgs.msg import Int32
 
 import docker
 docker_client = None
@@ -95,8 +96,6 @@ class AgentController(Node):
         
         self.docker_cmd_srv = self.create_service(DockerCmd, f'/{self.node_name}/docker_command', self.docker_command_srv_callback)
         self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{self.node_name}/iw_scan', self.iw_scan_command_srv_callback)
-        # if self.file_extraction_enabled:
-            # self.file_request_srv = self.create_service(FileRequest, f'/{self.node_name}/file_request', self.file_request_srv_callback)
             
         if self.docker_enabled:
             qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
@@ -119,11 +118,11 @@ class AgentController(Node):
                 self.get_logger().error(f'Failed creating publisher for topic {self.iw_monitor_topic}, msg_type=IWStatus')
                 self.iw_enabled = False
         
-        file_extraction_signalling_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_ALL, reliability=QoSReliabilityPolicy.RELIABLE)
+        file_extraction_signalling_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=100, reliability=QoSReliabilityPolicy.RELIABLE)
         self.file_request_sub = self.create_subscription(FileExtractionRequest, self.file_extraction_request_topic, self.file_request_received_callback, file_extraction_signalling_qos)
         self.file_result_pub = self.create_publisher(FileExtractionResult, self.file_extraction_result_topic, file_extraction_signalling_qos)
         
-        file_chunks_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_ALL, reliability=QoSReliabilityPolicy.RELIABLE)
+        file_chunks_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=100, reliability=QoSReliabilityPolicy.RELIABLE)
         if not self.bridge_server_address: # published chunks
             self.file_chunk_pub = self.create_publisher(FileChunk, self.file_extraction_chunks_topic, file_chunks_qos)
         else: # reads and uploads chunks from other agents
@@ -138,11 +137,16 @@ class AgentController(Node):
         res = FileExtractionResult()
         res.agent = self.node_name
         res.path = search_path
+        res.id_robot = msg.id_robot
         
         if not self.file_extraction_enabled:
             res.result = FileExtractionResult.RESULT_EXTRACTION_DISABLED
             self.file_result_pub.publish(res)
             return
+        if self.id_robot and msg.id_robot != self.id_robot:
+            res.result = FileExtractionResult.RESULT_INVALID_ROBOT
+            self.file_result_pub.publish(res)
+            return # not for this agent
         
         self.l.info(f'File request received: {search_path}')
         
@@ -187,12 +191,16 @@ class AgentController(Node):
             
             self.l.info(f'Can\'t upload, producing {num_parts} file chunks...')
             res.result = FileExtractionResult.RESULT_FOUND_SENDING_CHUNKS
-            produce_file_chunks(search_path, self.node_name, file_bytes, byte_size, chunk_size, num_parts, self.file_chunk_pub, self, self.l)
+            produce_file_chunks(search_path, msg.id_robot, self.node_name, file_bytes, byte_size, chunk_size, num_parts, self.file_chunk_pub, self, self.l)
 
         self.file_result_pub.publish(res)
 
 
     def file_chunk_received_callback(self, msg:FileChunk):
+        
+        if self.id_robot != msg.id_robot:
+            return
+        
         self.l.debug(f'File chunk {msg.chunk_number+1}/{msg.total_chunks} of \'{msg.path}\' received from {msg.agent}')
         if msg.path not in self.file_chunks_receiving:
             self.file_chunks_receiving[msg.path] = {}

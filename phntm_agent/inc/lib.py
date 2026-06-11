@@ -135,7 +135,7 @@ def locate_file(file_url:str, ros_distro:str, docker_client:docker.DockerClient,
     return None # file not found
 
 
-def produce_file_chunks(path:str, node_name:str, file_bytes:bytes, byte_size:int, chunk_size:int, num_parts:int, pub:Publisher, node:Node, logger:RcutilsLogger):
+def produce_file_chunks(path:str, id_robot:str, node_name:str, file_bytes:bytes, byte_size:int, chunk_size:int, num_parts:int, pub:Publisher, node:Node, logger:RcutilsLogger):
     
     logger.info(f'Producing {format_bytes(byte_size)} as {num_parts} chunks')
     
@@ -144,6 +144,7 @@ def produce_file_chunks(path:str, node_name:str, file_bytes:bytes, byte_size:int
         
         msg = FileChunk()
         msg.path = path
+        msg.id_robot = id_robot
         msg.agent = node_name
         msg.chunk_number = index
         msg.total_chunks = num_parts
