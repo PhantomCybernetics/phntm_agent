@@ -220,6 +220,7 @@ class AgentController(Node):
             res.agent = self.node_name
             res.path = msg.path
             res.result = FileExtractionResult.RESULT_ERROR
+            res.id_robot = msg.id_robot
             self.file_result_pub.publish(res)
             return
         
@@ -239,6 +240,7 @@ class AgentController(Node):
             res = FileExtractionResult()
             res.agent = self.node_name
             res.path = msg.path
+            res.id_robot = msg.id_robot
             if not cached_file_name:
                 res.result = FileExtractionResult.RESULT_ERROR
                 self.file_result_pub.publish(res)

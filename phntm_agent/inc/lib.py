@@ -232,9 +232,9 @@ def complete_file_upload(file_uploader_url_base:str, json_data, logger:RcutilsLo
         response = requests.post(url, json=json_data, timeout=30.0) # timeout in sec
         if response.status_code == 200:
             response_data = response.json()
-            if 'cachedfileName' in response_data and response_data['cachedfileName']:
-                logger.info(f"Completed {json_data['path']}, cached file name: {response_data['cachedfileName']}")
-                return response_data['cachedfileName']
+            if 'cachedFileName' in response_data and response_data['cachedFileName']:
+                logger.info(f"Completed {json_data['path']}, cached file name: {response_data['cachedFileName']}")
+                return response_data['cachedFileName']
             else:
                 logger.error(f"Completed {json_data['path']} with error, server did't return cached file name")
                 return False
