@@ -34,6 +34,21 @@ except Exception as e:
 import iwlib
 import iwlib.iwlist
 
+import sdbus
+from sdbus_async.networkmanager import NetworkManager, NetworkDeviceGeneric
+from sdbus_async.networkmanager.enums import DeviceType
+import gi
+gi.require_version("ModemManager", "1.0")
+gi.require_version("Gio", "2.0")
+from gi.repository import GLib, Gio, ModemManager
+from enum import Flag
+
+# from sdbus_async.modemmanager import MMModem #, Signal, Sim
+# print(ModemManager.ModemAccessTechnology)
+# for name in dir(ModemManager.ModemAccessTechnology):
+#     if not name.startswith("_"):
+#         print(name)
+        
 class AgentController(Node):
 
     ##
@@ -74,8 +89,12 @@ class AgentController(Node):
         self.docker_task = None
         self.sysinfo_pub = None
         self.sysinfo_task = None
+        self.iw_device_type = IWStatus.DEVICE_TYPE_UNKNOWN
         self.iw_pub = None
         self.iw_task = None
+        self.iw_modem_manager = None
+        self.iw_modem_obj = None
+        self.iw_modem = None
         self.file_request_sub = None
         self.file_result_pub = None
         self.file_chunk_pub = None
@@ -86,13 +105,53 @@ class AgentController(Node):
         self.last_essid:str = None #roaming between APs with same essid
         self.last_access_point:str = None
         self.last_frequency:float = None #GHz
+    
+    
+    async def setup(self):
+        
         if self.iw_enabled:
-            try:
-                self.iw_max_quality:float = iwlib.utils.get_max_quality(self.iw_interface)
-                self.iw_supports_scanning:bool = iwlib.utils.supports_scanning(self.iw_interface)
-            except OSError:
-                self.l.error(f'Error initiating interface {self.iw_interface}; wi-fi control disabled')
-                self.iw_enabled = False
+
+            sdbus.set_default_bus(sdbus.sd_bus_open_system())
+            self.nm = NetworkManager()
+
+            devices_paths = await self.nm.get_devices()
+            for device_path in devices_paths:
+                dev = NetworkDeviceGeneric(device_path)
+                iface = await dev.interface
+                dtype = DeviceType(await dev.device_type) 
+            
+                if iface == self.iw_interface:
+                    if dtype == DeviceType.WIFI:
+                        self.l.info(f'NM: {iface} type is WI-FI {device_path}')
+                        self.iw_device_type = IWStatus.DEVICE_TYPE_WIFI
+                        try:
+                            self.iw_max_quality:float = iwlib.utils.get_max_quality(self.iw_interface)
+                            self.iw_supports_scanning:bool = iwlib.utils.supports_scanning(self.iw_interface)
+                        except OSError:
+                            self.l.error(f'Error initiating interface {self.iw_interface}; wi-fi control disabled')
+                            self.iw_enabled = False
+                    elif dtype == DeviceType.MODEM:
+                        self.l.info(f'NM: {self.iw_interface} type is CELLULAR {device_path}')
+                        self.iw_device_type = IWStatus.DEVICE_TYPE_GSM
+                        if not self.iw_modem_manager:
+                            connection = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+                            self.iw_modem_manager = ModemManager.Manager.new_sync(
+                                connection,
+                                Gio.DBusObjectManagerClientFlags.DO_NOT_AUTO_START,
+                                None) # MMModem('/org/freedesktop/ModemManager1/Modem/0', sdbus.get_default_bus())
+                        objs = self.iw_modem_manager.get_objects()
+                        for o in objs:
+                            m = o.get_modem()
+                            if m.get_primary_port() == self.iw_interface:
+                                self.iw_modem_obj = o
+                                self.iw_modem = m
+                            
+                    elif dtype == DeviceType.ETHERNET:
+                        self.l.info(f'NM: {self.iw_interface} type is WIRED {device_path}')
+                        self.iw_device_type = IWStatus.DEVICE_TYPE_WIRED
+                    else:
+                        self.l.error(f'NM: {self.iw_interface} type is UNKNOWN')
+                        self.iw_enabled = False
         
         self.docker_cmd_srv = self.create_service(DockerCmd, f'/{self.node_name}/docker_command', self.docker_command_srv_callback)
         self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{self.node_name}/iw_scan', self.iw_scan_command_srv_callback)
@@ -507,9 +566,9 @@ class AgentController(Node):
             
             if self.log_output:
                 if cs['status'] == 'running':
-                    print(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {format_bytes(cs["block_io_read"], True)} / {format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
+                    print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}] CPU: {cs["cpu_perc"]:.2f}% BLOCK I/O: {format_bytes(cs["block_io_read"], True)} / {format_bytes(cs["block_io_write"], True)} PIDS: {str(cs["pids"])}')
                 else:
-                    print(self, f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
+                    print(f'[Docker] {cs["short_id"]} {c(cs["name"], clr)} [{c(cs["status"], clr)}]')
         
         if self.docker_pub and self.context.ok():
             self.docker_pub.publish(msg)
@@ -530,7 +589,7 @@ class AgentController(Node):
         i = 0
         for cpu in cpu_times:
             if self.log_output:
-                print(self, f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
+                print(f'[CPU {str(i)}] User:{cpu.user:.1f}% Nice:{cpu.nice:.1f}% Sys:{cpu.system:.1f}% Idle:{cpu.idle:.1f}% ... {100.0-cpu.idle:.1f}%')
             i += 1
             msg_cpu = CPUStatusInfo()
             msg_cpu.user_percent = cpu.user
@@ -540,7 +599,7 @@ class AgentController(Node):
             msg.cpu.append(msg_cpu)
         
         if self.log_output:
-            print(self, f'[MEM] Tot:{format_bytes(mem.total)} Avail:{format_bytes(mem.available)} Used:{format_bytes(mem.used)} Free:{format_bytes(mem.free)} Buff:{format_bytes(mem.buffers)} Shar:{format_bytes(mem.shared)} Cach:{format_bytes(mem.cached)}')
+            print(f'[MEM] Tot:{format_bytes(mem.total)} Avail:{format_bytes(mem.available)} Used:{format_bytes(mem.used)} Free:{format_bytes(mem.free)} Buff:{format_bytes(mem.buffers)} Shar:{format_bytes(mem.shared)} Cach:{format_bytes(mem.cached)}')
         msg.mem_total_bytes = mem.total
         msg.mem_available_bytes = mem.available
         msg.mem_used_bytes = mem.used
@@ -550,7 +609,7 @@ class AgentController(Node):
         msg.mem_cached_bytes = mem.cached
 
         if self.log_output:
-            print(self, f'[SWP] Tot:{format_bytes(swp.total)} Used:{format_bytes(swp.used)} Free:{format_bytes(swp.free)}')
+            print(f'[SWP] Tot:{format_bytes(swp.total)} Used:{format_bytes(swp.used)} Free:{format_bytes(swp.free)}')
         msg.swp_total_bytes = swp.total
         msg.swp_used_bytes = swp.used
         msg.swp_free_bytes = swp.free
@@ -561,7 +620,7 @@ class AgentController(Node):
             dsk = psutil.disk_usage(disk_path)
             i += 1
             if self.log_output:
-                print(self, f'[DSK {disk_path}] Tot:{format_bytes(dsk.total)} Used:{format_bytes(dsk.used)} Free:{format_bytes(dsk.free)}')    
+                print(f'[DSK {disk_path}] Tot:{format_bytes(dsk.total)} Used:{format_bytes(dsk.used)} Free:{format_bytes(dsk.free)}')    
             msg_dsk = DiskVolumeStatusInfo()
             msg_dsk.path = disk_path
             msg_dsk.total_bytes = dsk.total
@@ -573,14 +632,15 @@ class AgentController(Node):
             self.sysinfo_pub.publish(msg)
 
 
-    def get_iw_info(self):
+    def get_wifi_connection_info(self):
         
         cfg = iwlib.iwconfig.get_iwconfig(self.iw_interface)
         msg = IWStatus()
-
+        msg.device_type = self.iw_device_type
+        
         set_message_header(self, msg)
 
-        try:
+        try:    
             if 'Frequency' in cfg:
                 msg.frequency = float(cfg['Frequency'].split()[0]) # b'5.24 GHz'
             if 'Access Point' in cfg:
@@ -612,7 +672,7 @@ class AgentController(Node):
             self.last_frequency = msg.frequency
 
             if self.log_output:
-                print(self, f'[NET] Q:{str(msg.quality)}% L:{str(msg.level)} N:{str(msg.noise)} AP:{msg.access_point}')
+                print(f'[WIFI] Q:{str(msg.quality)}% L:{str(msg.level)} N:{str(msg.noise)} AP:{msg.access_point}')
         
             if self.iw_pub and self.context.ok():
                 self.iw_pub.publish(msg)
@@ -620,6 +680,73 @@ class AgentController(Node):
         except Exception as e:
             print (f'Error while generating IWStatus: {e}')
             print (f'IW CFG was: {cfg}')
+
+
+    async def get_gsm_connection_info(self):
+            
+            if not self.iw_modem_obj or not self.iw_modem:
+                return
+            
+            msg = IWStatus()
+            msg.device_type = self.iw_device_type
+            msg.supports_scanning = False
+            
+            set_message_header(self, msg)
+
+            # 3GPP interface for operator name
+            modem_3gpp = self.iw_modem_obj.get_modem_3gpp()
+            operator_name = modem_3gpp.get_operator_name() if modem_3gpp else "unknown"
+
+            # Signal quality (0–100)
+            signal_quality, _recent = self.iw_modem.get_signal_quality()
+
+            access_tech_flags = self.iw_modem.get_access_technologies()
+            using_techs = []
+                        
+            for tech in dir(ModemManager.ModemAccessTechnology):
+                if tech.startswith("_"):
+                    continue
+                flag = getattr(ModemManager.ModemAccessTechnology, tech)
+                if not isinstance(flag, int):
+                    continue
+                if flag == ModemManager.ModemAccessTechnology.ANY:
+                    continue
+                if access_tech_flags & flag:
+                    using_techs.append(tech)
+                            
+            msg.gsm_tech = ", ".join(using_techs) if using_techs else ""
+            msg.access_point = operator_name
+            
+            # print(f"{operator_name} {signal_quality} {connection_mode}")
+            msg.quality_max = 100
+            msg.quality = signal_quality
+            
+            if self.log_output:
+                print(f'[GSM] {operator_name} Q:{str(msg.quality)}% {msg.gsm_tech}')
+            
+            try:
+                if self.iw_pub and self.context.ok():
+                    self.iw_pub.publish(msg)
+            except Exception as e:
+                print (f'Error while generating GSM IWStatus: {e}')
+
+
+    def get_wired_connection_info(self):
+        
+        msg = IWStatus()
+        msg.device_type = self.iw_device_type
+        msg.supports_scanning = False
+        
+        set_message_header(self, msg)
+
+        msg.quality_max = 100
+        msg.quality = 100
+            
+        try:
+            if self.iw_pub and self.context.ok():
+                self.iw_pub.publish(msg)
+        except Exception as e:
+            print (f'Error while generating Wired IWStatus: {e}')
 
 
     async def agent_loop(self):
@@ -636,8 +763,12 @@ class AgentController(Node):
                     self.sysinfo_task =  asyncio.get_event_loop().run_in_executor(None, self.get_system_info)
                     
                 if self.iw_enabled and (not self.iw_task or self.iw_task.done()):
-                    self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_iw_info)
-                
+                    if self.iw_device_type == IWStatus.DEVICE_TYPE_WIFI:
+                        self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wifi_connection_info)
+                    elif self.iw_device_type == IWStatus.DEVICE_TYPE_GSM:
+                        self.iw_task =  asyncio.get_event_loop().create_task(self.get_gsm_connection_info())
+                    elif self.iw_device_type == IWStatus.DEVICE_TYPE_WIRED:
+                        self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wired_connection_info)
                 await asyncio.sleep(self.refresh_period_sec)
             
         except (asyncio.CancelledError, KeyboardInterrupt):
@@ -650,8 +781,8 @@ class AgentController(Node):
 
     def load_config(self):
         
-        self.declare_parameter('log', False)
-        self.log_output = self.get_parameter('log').get_parameter_value().bool_value
+        self.declare_parameter('agent_log_verbose', False)
+        self.log_output = self.get_parameter('agent_log_verbose').get_parameter_value().bool_value
         
         self.declare_parameter('agent_update_period_sec', 0.5)
         self.refresh_period_sec = self.get_parameter('agent_update_period_sec').get_parameter_value().double_value
@@ -743,8 +874,11 @@ class AgentController(Node):
 
 
 async def main_async(args):
+    agent_node = None
+    loop_task = None
     try:
         agent_node = AgentController()
+        await agent_node.setup()
         loop_task = asyncio.get_event_loop().create_task(agent_node.agent_loop())
         await asyncio.wait([ loop_task ], return_when=asyncio.ALL_COMPLETED)
     except (asyncio.CancelledError, KeyboardInterrupt):
