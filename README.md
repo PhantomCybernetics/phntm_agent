@@ -79,10 +79,10 @@ services:
     #  - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # recommended, see Bridge Client instructions
     #  - ROS_DOMAIN_ID=22 # if used, specify ROS domain ID here
     volumes:
-      # - ~/phntm_agent:/ros2_ws/src/phntm_agent # (optional) live repo mapped here for easy updates
-      - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here
-      - /var/run:/host_run # docker file extractor and wi-fi control need this
+      - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here (can be linked to phntm_bridge.yaml)
+      - /var/run:/host_run # docker file extractor and wi-fi/modem control need this
       - /tmp:/tmp # wi-fi control needs this
+      # - ~/phntm_agent:/ros2_ws/src/phntm_agent # live repo mounsted for development
     command:
       ros2 launch phntm_agent agent_launch.py
 ```

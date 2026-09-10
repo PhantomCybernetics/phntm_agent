@@ -111,6 +111,7 @@ class AgentController(Node):
         
         if self.iw_enabled:
 
+            # DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host_run/dbus/system_bus_socket
             sdbus.set_default_bus(sdbus.sd_bus_open_system())
             self.nm = NetworkManager()
 
