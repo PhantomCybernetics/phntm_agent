@@ -16,8 +16,8 @@ import psutil
 import math
 import time
 import signal
-from phntm_interfaces.msg import DockerStatus, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, IWStatus, IWScanResult, FileExtractionRequest, FileExtractionResult, FileChunk
-from phntm_interfaces.srv import DockerCmd, IWScanCmd
+from phntm_interfaces.msg import DockerHostContainers, DockerContainerStatus, CPUStatusInfo, DiskVolumeStatusInfo, SystemInfo, NetStatus, WirelessScanResult, FileExtractionRequest, FileExtractionResult, FileChunk
+from phntm_interfaces.srv import DockerCmd, WirelessScanCmd
 from .inc.lib import format_bytes, set_message_header, locate_file, produce_file_chunks, upload_file_chunk, upload_file_chunks, complete_file_upload
 from std_msgs.msg import Int32
 
@@ -59,15 +59,16 @@ class AgentController(Node):
         self.shutting_down:bool = False
         
         self.node_name ='phntm_agent'
-        self.hostname = ''
+        self.host_name = ''
         
         # load node name from config before we can set node name
         config_path = os.path.join('/ros2_ws/', 'phntm_agent_params.yaml')
         try:
             with open(config_path, 'r') as file:
                 config = yaml.safe_load(file)
-                self.hostname = config["/**"]["ros__parameters"].get('host_name', 'localhost')
-                self.node_name = f'{self.node_name}_{self.hostname}' if self.hostname else self.node_name
+                self.host_name = config["/**"]["ros__parameters"].get('host_name', '')
+                if self.host_name:
+                    self.node_name = f'{self.node_name}_{self.host_name}'
         except FileNotFoundError:
             pass
         
@@ -77,7 +78,7 @@ class AgentController(Node):
        
         self.l = self.get_logger()
         self.l.set_level(rclpy.logging.LoggingSeverity.DEBUG) 
-        self.l.debug(f'Phntm Agent{" @ "+self.hostname if self.hostname != "" else ""} started')    
+        self.l.debug(f'Phntm Agent{" @ "+self.host_name if self.host_name != "" else ""} started')    
         
         if not self.log_output:
             self.l.info(f'Verbose logging disabled by config')
@@ -89,19 +90,20 @@ class AgentController(Node):
         self.docker_task = None
         self.sysinfo_pub = None
         self.sysinfo_task = None
-        self.iw_device_type = IWStatus.DEVICE_TYPE_UNKNOWN
-        self.iw_pub = None
-        self.iw_task = None
-        self.iw_modem_manager = None
-        self.iw_modem_obj = None
-        self.iw_modem = None
+        self.net_device_type = NetStatus.DEVICE_TYPE_UNKNOWN
+        self.net_pub = None
+        self.net_task = None
+        self.gsm_modem_manager = None
+        self.gsm_modem_obj = None
+        self.gsm_modem = None
         self.file_request_sub = None
         self.file_result_pub = None
         self.file_chunk_pub = None
         self.file_chunk_sub = None
         
-        self.iw_max_quality:float = False
-        self.iw_supports_scanning:bool = False
+        self.net_max_quality:float = False
+        self.net_supports_scanning:bool = False
+        
         self.last_essid:str = None #roaming between APs with same essid
         self.last_access_point:str = None
         self.last_frequency:float = None #GHz
@@ -109,7 +111,7 @@ class AgentController(Node):
     
     async def setup(self):
         
-        if self.iw_enabled:
+        if self.net_monitoring_enabled:
 
             # DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host_run/dbus/system_bus_socket
             sdbus.set_default_bus(sdbus.sd_bus_open_system())
@@ -121,47 +123,47 @@ class AgentController(Node):
                 iface = await dev.interface
                 dtype = DeviceType(await dev.device_type) 
             
-                if iface == self.iw_interface:
+                if iface == self.net_interface:
                     if dtype == DeviceType.WIFI:
                         self.l.info(f'NM: {iface} type is WI-FI {device_path}')
-                        self.iw_device_type = IWStatus.DEVICE_TYPE_WIFI
+                        self.net_device_type = NetStatus.DEVICE_TYPE_WIFI
                         try:
-                            self.iw_max_quality:float = iwlib.utils.get_max_quality(self.iw_interface)
-                            self.iw_supports_scanning:bool = iwlib.utils.supports_scanning(self.iw_interface)
+                            self.net_max_quality = iwlib.utils.get_max_quality(self.net_interface)
+                            self.net_supports_scanning = iwlib.utils.supports_scanning(self.net_interface)
                         except OSError:
-                            self.l.error(f'Error initiating interface {self.iw_interface}; wi-fi control disabled')
-                            self.iw_enabled = False
+                            self.l.error(f'Error initiating wi-fi interface {self.net_interface}; monitoring/control disabled')
+                            self.net_monitoring_enabled = False
                     elif dtype == DeviceType.MODEM:
-                        self.l.info(f'NM: {self.iw_interface} type is CELLULAR {device_path}')
-                        self.iw_device_type = IWStatus.DEVICE_TYPE_GSM
-                        if not self.iw_modem_manager:
+                        self.l.info(f'NM: {self.net_interface} type is CELLULAR {device_path}')
+                        self.net_device_type = NetStatus.DEVICE_TYPE_GSM
+                        if not self.gsm_modem_manager:
                             connection = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-                            self.iw_modem_manager = ModemManager.Manager.new_sync(
+                            self.gsm_modem_manager = ModemManager.Manager.new_sync(
                                 connection,
                                 Gio.DBusObjectManagerClientFlags.DO_NOT_AUTO_START,
                                 None) # MMModem('/org/freedesktop/ModemManager1/Modem/0', sdbus.get_default_bus())
-                        objs = self.iw_modem_manager.get_objects()
+                        objs = self.gsm_modem_manager.get_objects()
                         for o in objs:
                             m = o.get_modem()
-                            if m.get_primary_port() == self.iw_interface:
-                                self.iw_modem_obj = o
-                                self.iw_modem = m
+                            if m.get_primary_port() == self.net_interface:
+                                self.gsm_modem_obj = o
+                                self.gsm_modem = m
                             
                     elif dtype == DeviceType.ETHERNET:
-                        self.l.info(f'NM: {self.iw_interface} type is WIRED {device_path}')
-                        self.iw_device_type = IWStatus.DEVICE_TYPE_WIRED
+                        self.l.info(f'NM: {self.net_interface} type is WIRED {device_path}')
+                        self.net_device_type = NetStatus.DEVICE_TYPE_WIRED
                     else:
-                        self.l.error(f'NM: {self.iw_interface} type is UNKNOWN')
-                        self.iw_enabled = False
+                        self.l.error(f'NM: {self.net_interface} type is UNKNOWN')
+                        self.net_monitoring_enabled = False
         
         self.docker_cmd_srv = self.create_service(DockerCmd, f'/{self.node_name}/docker_command', self.docker_command_srv_callback)
-        self.iw_scan_cmd_srv = self.create_service(IWScanCmd, f'/{self.node_name}/iw_scan', self.iw_scan_command_srv_callback)
+        self.wireless_scan_cmd_srv = self.create_service(WirelessScanCmd, f'/{self.node_name}/wireless_scan', self.wireless_scan_command_srv_callback)
             
         if self.docker_enabled:
             qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-            self.docker_pub = self.create_publisher(DockerStatus, self.docker_topic, qos)
+            self.docker_pub = self.create_publisher(DockerHostContainers, self.docker_topic, qos)
             if self.docker_pub == None:
-                self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerStatus')
+                self.get_logger().error(f'Failed creating publisher for topic {self.docker_topic}, msg_type=DockerHostContainers')
                 self.docker_enabled = False
         
         if self.system_info_enabled:
@@ -171,12 +173,12 @@ class AgentController(Node):
                 self.get_logger().error(f'Failed creating publisher for topic {self.system_info_topic}, msg_type=SystemInfo')
                 self.system_info_enabled = False
                 
-        if self.iw_interface and self.iw_monitor_topic:
+        if self.net_interface and self.net_monitor_topic:
             qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-            self.iw_pub = self.create_publisher(IWStatus, self.iw_monitor_topic, qos)
-            if self.iw_pub == None:
-                self.get_logger().error(f'Failed creating publisher for topic {self.iw_monitor_topic}, msg_type=IWStatus')
-                self.iw_enabled = False
+            self.net_pub = self.create_publisher(NetStatus, self.net_monitor_topic, qos)
+            if self.net_pub == None:
+                self.get_logger().error(f'Failed creating publisher for topic {self.net_monitor_topic}, msg_type=NetStatus')
+                self.net_monitoring_enabled = False
         
         file_extraction_signalling_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=100, reliability=QoSReliabilityPolicy.RELIABLE)
         self.file_request_sub = self.create_subscription(FileExtractionRequest, self.file_extraction_request_topic, self.file_request_received_callback, file_extraction_signalling_qos)
@@ -363,32 +365,31 @@ class AgentController(Node):
         return response
 
 
-    def iw_scan_command_srv_callback(self, request:IWScanCmd.Request, response:IWScanCmd.Response):
+    def wireless_scan_command_srv_callback(self, request:WirelessScanCmd.Request, response:WirelessScanCmd.Response):
         response.err = 0
         
-        self.get_logger().info(f'IW scan request received; roam={request.attempt_roam}')
+        self.get_logger().info(f'Wireless scan request received; roam={request.attempt_roam}')
                 
-        if not self.iw_supports_scanning:
+        if not self.net_supports_scanning:
             response.err = 3
             response.msg = 'Interface doesn\'t support scanning'
             return response
 
-        if not self.iw_control_enabled:
+        if not self.wifi_scannig_enabled:
             response.err = 3
-            response.msg = 'Wifi control disabled by Agent'
+            response.msg = 'Wifi scanning disabled by Agent'
             return response
         
         try:
-            results = subprocess.run(['iw', 'dev', self.iw_interface, 'scan'], capture_output=True, text=True)
+            results = subprocess.run(['iw', 'dev', self.net_interface, 'scan'], capture_output=True, text=True)
             print(results.stdout)
-            # results = iwlib.iwlist.scan(self.iw_interface)
         except Exception as e:
-             print(f'Exception while scanning IW: {e}')
+             print(f'Exception while scanning wireless: {e}')
              response.err = 3
              response.msg = f'Exception while scanning: {str(e)}'
              return response
 
-        self.get_logger().info(f'IW Monitor scan results: ')
+        self.get_logger().info(f'Wireless scan results: ')
         
         response.scan_results = []
         roaming_candidates = []
@@ -438,7 +439,7 @@ class AgentController(Node):
         response.scan_results = sorted(response.scan_results, key=lambda x: x.signal, reverse=True)
         
         if request.attempt_roam:
-            if not self.iw_roaming_enabled:
+            if not self.wifi_roaming_enabled:
                 response.err = 3
                 response.msg = 'Roaming disabled by Agent'
             else:
@@ -453,7 +454,7 @@ class AgentController(Node):
                     self.get_logger().info(f" >>> Not roaming, current AP seems the best")
                 else:
                     self.get_logger().info(f' >>> Attenmpting to roam to "{bestest.essid}" {bestest.access_point} with signal={bestest.signal}')
-                    wpa_cli_res = os.system(f'wpa_cli -p /host_run/wpa_supplicant/ -i {self.iw_interface} roam {bestest.access_point}')
+                    wpa_cli_res = os.system(f'wpa_cli -p /host_run/wpa_supplicant/ -i {self.net_interface} roam {bestest.access_point}')
                     self.get_logger().info(f'wpa_cli_res={wpa_cli_res}')
                     response.res = wpa_cli_res
                     response.msg = f'Switched to "{bestest.essid}" {bestest.access_point}'
@@ -515,8 +516,9 @@ class AgentController(Node):
         
         docker_containers = docker_client.containers.list(all=True)
          
-        msg = DockerStatus()
+        msg = DockerHostContainers()
         set_message_header(self, msg)
+        msg.agent = self.node_name
         msg.containers = []
          
         c_stats = []
@@ -635,9 +637,9 @@ class AgentController(Node):
 
     def get_wifi_connection_info(self):
         
-        cfg = iwlib.iwconfig.get_iwconfig(self.iw_interface)
-        msg = IWStatus()
-        msg.device_type = self.iw_device_type
+        cfg = iwlib.iwconfig.get_iwconfig(self.net_interface)
+        msg = NetStatus()
+        msg.device_type = self.net_device_type
         
         set_message_header(self, msg)
 
@@ -652,9 +654,9 @@ class AgentController(Node):
                 msg.essid = cfg['ESSID'].decode() # b'CircuitLaunch'
             if 'Mode' in cfg:
                 if cfg['Mode'] == b'Managed':
-                    msg.mode = IWStatus.MODE_MANAGED #b'Managed'
+                    msg.mode = NetStatus.MODE_MANAGED #b'Managed'
                 elif cfg['Mode'] == b'Ad-Hoc':
-                    msg.mode = IWStatus.MODE_AD_HOC #b'Ad-Hoc'
+                    msg.mode = NetStatus.MODE_AD_HOC #b'Ad-Hoc'
             if 'stats' in cfg:
                 if 'quality' in cfg['stats']:
                     msg.quality = cfg['stats']['quality'] # 34
@@ -663,8 +665,8 @@ class AgentController(Node):
                 if 'noise' in cfg['stats']:
                     msg.noise = cfg['stats']['noise'] # 0
 
-            msg.quality_max = self.iw_max_quality # 70
-            msg.supports_scanning = self.iw_supports_scanning
+            msg.quality_max = self.net_max_quality # 70
+            msg.supports_scanning = self.net_supports_scanning
             
             # msg.num_peers = len(self.wrtc_peers)
             
@@ -675,33 +677,33 @@ class AgentController(Node):
             if self.log_output:
                 print(f'[WIFI] Q:{str(msg.quality)}% L:{str(msg.level)} N:{str(msg.noise)} AP:{msg.access_point}')
         
-            if self.iw_pub and self.context.ok():
-                self.iw_pub.publish(msg)
+            if self.net_pub and self.context.ok():
+                self.net_pub.publish(msg)
 
         except Exception as e:
-            print (f'Error while generating IWStatus: {e}')
+            print (f'Error while generating NetStatus: {e}')
             print (f'IW CFG was: {cfg}')
 
 
     async def get_gsm_connection_info(self):
             
-            if not self.iw_modem_obj or not self.iw_modem:
+            if not self.gsm_modem_obj or not self.gsm_modem:
                 return
             
-            msg = IWStatus()
-            msg.device_type = self.iw_device_type
+            msg = NetStatus()
+            msg.device_type = self.net_device_type
             msg.supports_scanning = False
             
             set_message_header(self, msg)
 
             # 3GPP interface for operator name
-            modem_3gpp = self.iw_modem_obj.get_modem_3gpp()
+            modem_3gpp = self.gsm_modem_obj.get_modem_3gpp()
             operator_name = modem_3gpp.get_operator_name() if modem_3gpp else "unknown"
 
             # Signal quality (0–100)
-            signal_quality, _recent = self.iw_modem.get_signal_quality()
+            signal_quality, _recent = self.gsm_modem.get_signal_quality()
 
-            access_tech_flags = self.iw_modem.get_access_technologies()
+            access_tech_flags = self.gsm_modem.get_access_technologies()
             using_techs = []
                         
             for tech in dir(ModemManager.ModemAccessTechnology):
@@ -726,16 +728,16 @@ class AgentController(Node):
                 print(f'[GSM] {operator_name} Q:{str(msg.quality)}% {msg.gsm_tech}')
             
             try:
-                if self.iw_pub and self.context.ok():
-                    self.iw_pub.publish(msg)
+                if self.net_pub and self.context.ok():
+                    self.net_pub.publish(msg)
             except Exception as e:
-                print (f'Error while generating GSM IWStatus: {e}')
+                print (f'Error while generating GSM NetStatus: {e}')
 
 
     def get_wired_connection_info(self):
         
-        msg = IWStatus()
-        msg.device_type = self.iw_device_type
+        msg = NetStatus()
+        msg.device_type = self.net_device_type
         msg.supports_scanning = False
         
         set_message_header(self, msg)
@@ -744,10 +746,10 @@ class AgentController(Node):
         msg.quality = 100
             
         try:
-            if self.iw_pub and self.context.ok():
-                self.iw_pub.publish(msg)
+            if self.net_pub and self.context.ok():
+                self.net_pub.publish(msg)
         except Exception as e:
-            print (f'Error while generating Wired IWStatus: {e}')
+            print (f'Error while generating Wired NetStatus: {e}')
 
 
     async def agent_loop(self):
@@ -763,13 +765,13 @@ class AgentController(Node):
                 if self.system_info_enabled and (not self.sysinfo_task or self.sysinfo_task.done()):
                     self.sysinfo_task =  asyncio.get_event_loop().run_in_executor(None, self.get_system_info)
                     
-                if self.iw_enabled and (not self.iw_task or self.iw_task.done()):
-                    if self.iw_device_type == IWStatus.DEVICE_TYPE_WIFI:
-                        self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wifi_connection_info)
-                    elif self.iw_device_type == IWStatus.DEVICE_TYPE_GSM:
-                        self.iw_task =  asyncio.get_event_loop().create_task(self.get_gsm_connection_info())
-                    elif self.iw_device_type == IWStatus.DEVICE_TYPE_WIRED:
-                        self.iw_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wired_connection_info)
+                if self.net_monitoring_enabled and (not self.net_task or self.net_task.done()):
+                    if self.net_device_type == NetStatus.DEVICE_TYPE_WIFI:
+                        self.net_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wifi_connection_info)
+                    elif self.net_device_type == NetStatus.DEVICE_TYPE_GSM:
+                        self.net_task =  asyncio.get_event_loop().create_task(self.get_gsm_connection_info())
+                    elif self.net_device_type == NetStatus.DEVICE_TYPE_WIRED:
+                        self.net_task =  asyncio.get_event_loop().run_in_executor(None, self.get_wired_connection_info)
                 await asyncio.sleep(self.refresh_period_sec)
             
         except (asyncio.CancelledError, KeyboardInterrupt):
@@ -811,20 +813,27 @@ class AgentController(Node):
         if self.system_info_enabled:
             self.get_logger().info(f'Monitoring disk volumes: {str(self.disk_paths)}')
             
-        self.declare_parameter('wifi_interface', '')
-        self.iw_interface = self.get_parameter('wifi_interface').get_parameter_value().string_value
-        self.declare_parameter('wifi_monitor_topic', '/iw_status')
-        self.iw_monitor_topic = self.get_parameter('wifi_monitor_topic').get_parameter_value().string_value
-        self.iw_enabled = self.iw_interface and self.iw_monitor_topic
-        if self.iw_enabled:
-            self.get_logger().info(f'Monitoring network interface {self.iw_interface} -> {self.iw_monitor_topic}')
+        self.declare_parameter('net_interface', '')
+        self.net_interface = self.get_parameter('net_interface').get_parameter_value().string_value
+        self.declare_parameter('wifi_interface', '') # legacy compatibility
+        legacy_wifi_interface = self.get_parameter('wifi_interface').get_parameter_value().string_value
+        if not self.net_interface and legacy_wifi_interface:
+            self.net_interface = legacy_wifi_interface
+        
+        self.declare_parameter('net_monitor_topic', '/net_status') # was /iw_status
+        self.net_monitor_topic = self.get_parameter('net_monitor_topic').get_parameter_value().string_value
+        self.net_monitoring_enabled = self.net_interface and self.net_monitor_topic
+        if self.net_monitoring_enabled:
+            self.get_logger().info(f'Monitoring network interface {self.net_interface} -> {self.net_monitor_topic}')
 
         self.declare_parameter('enable_wifi_scan', True)
-        self.iw_control_enabled = self.get_parameter('enable_wifi_scan').get_parameter_value().bool_value
+        self.wifi_scanning_enabled = self.get_parameter('enable_wifi_scan').get_parameter_value().bool_value
         self.declare_parameter('enable_wifi_roam', False)
-        self.iw_roaming_enabled = self.get_parameter('enable_wifi_roam').get_parameter_value().bool_value
-        if self.iw_enabled and self.iw_control_enabled:
-            self.get_logger().info(f'Network control enabled'+(' with roaming' if self.iw_roaming_enabled else ''))
+        self.wifi_roaming_enabled = self.get_parameter('enable_wifi_roam').get_parameter_value().bool_value
+        if self.wifi_scanning_enabled:
+            self.get_logger().info(f'Wi-fi scanning enabled')
+        if self.wifi_roaming_enabled:
+            self.get_logger().info(f'Wi-fi roaming enabled')
             
         self.declare_parameter('file_extraction_enabled', True)
         self.file_extraction_enabled = self.get_parameter('file_extraction_enabled').get_parameter_value().bool_value
@@ -869,9 +878,9 @@ class AgentController(Node):
             self.sysinfo_pub.destroy()
             self.sysinfo_pub = None
             
-        if self.iw_pub:
-            self.iw_pub.destroy()
-            self.iw_pub = None
+        if self.net_pub:
+            self.net_pub.destroy()
+            self.net_pub = None
 
 
 async def main_async(args):

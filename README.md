@@ -47,8 +47,8 @@ Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of confi
     system_info_topic: '/system_info_pi5' # writes output here, '' to disable
     disk_volume_paths: [ '/', '/dev/shm' ] # volumes to monitor, must be accessible from the container, [ '/' ] default
 
-    wifi_interface: 'wlan0' # wi-fi interface to monitor, disabled if ''
-    wifi_monitor_topic: '/iw_status' # writes output here
+    net_interface: 'wlan0' # interface to monitor, disabled if ''
+    net_monitor_topic: '/net_status' # writes output here
     enable_wifi_scan: True # enable wi-fi scanning, must be also enabled in Bridge UI config
     enable_wifi_roam: False # enable wi-fi roaming, must be also enabled in Bridge UI config
 ```

@@ -250,7 +250,7 @@ def set_message_header(node, msg):
     time_nanosec:int = time.time_ns()
     msg.header.stamp.sec = math.floor(time_nanosec / 1000000000)
     msg.header.stamp.nanosec = time_nanosec % 1000000000
-    msg.header.frame_id = node.hostname
+    msg.header.frame_id = node.host_name
 
 
 def format_bytes(b, mib=False): # docker stats shows MB not MiB, keep consistent
