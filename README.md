@@ -47,8 +47,8 @@ Here's an example config file, e.g. `~/phntm_agent.yaml`. The full list of confi
     system_info_topic: '/system_info_pi5' # writes output here, '' to disable
     disk_volume_paths: [ '/', '/dev/shm' ] # volumes to monitor, must be accessible from the container, [ '/' ] default
 
-    wifi_interface: 'wlan0' # wi-fi interface to monitor, disabled if ''
-    wifi_monitor_topic: '/iw_status' # writes output here
+    net_interface: 'wlan0' # interface to monitor, disabled if ''
+    net_monitor_topic: '/net_status' # writes output here
     enable_wifi_scan: True # enable wi-fi scanning, must be also enabled in Bridge UI config
     enable_wifi_roam: False # enable wi-fi roaming, must be also enabled in Bridge UI config
 ```
@@ -79,10 +79,10 @@ services:
     #  - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # recommended, see Bridge Client instructions
     #  - ROS_DOMAIN_ID=22 # if used, specify ROS domain ID here
     volumes:
-      # - ~/phntm_agent:/ros2_ws/src/phntm_agent # (optional) live repo mapped here for easy updates
-      - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here
-      - /var/run:/host_run # docker file extractor and wi-fi control need this
+      - ~/phntm_agent.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here (can be linked to phntm_bridge.yaml)
+      - /var/run:/host_run # docker file extractor and wi-fi/modem control need this
       - /tmp:/tmp # wi-fi control needs this
+      # - ~/phntm_agent:/ros2_ws/src/phntm_agent # live repo mounsted for development
     command:
       ros2 launch phntm_agent agent_launch.py
 ```

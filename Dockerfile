@@ -35,7 +35,11 @@ RUN mkdir -p /root/ros2_py_venv
 RUN python3 -m venv /root/ros2_py_venv
 RUN . /root/ros2_py_venv/bin/activate && \
     pip install iwlib && \
+    pip install --only-binary ':all:' sdbus-networkmanager && \
     deactivate
+# pip install --only-binary ':all:' sdbus-ModemManager && \
+RUN apt-get install -y python3-gi python3-gi-cairo gir1.2-modemmanager-1.0
+ENV DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host_run/dbus/system_bus_socket
 
 # wifi ctrl via shared /var/run/wpa_supplicant/ (also needs shared /tmp)
 RUN apt-get install -y wpasupplicant
